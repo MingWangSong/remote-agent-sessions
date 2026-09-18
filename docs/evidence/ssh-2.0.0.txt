@@ -1,0 +1,18 @@
+Remote Agent Sessions 2.0.0 real SSH acceptance
+Date: 2026-09-14
+Target alias: isolated-test-host
+Remote: Linux / tmux 3.4
+
+PASS: Local SshClient connected using the existing OpenSSH alias.
+PASS: Random isolated tmux socket created a managed session.
+PASS: Remote pane command, second window, split pane and snapshot were observed.
+PASS: Local note and restore metadata persisted.
+PASS: Stopping only the isolated tmux server produced a recoverable record.
+PASS: Restore recreated the saved workspace and expected output.
+PASS: Isolated resources were cleaned and default tmux identities were unchanged.
+PASS: Local VS Code UI listed the host and its pre-existing sessions.
+PASS: Clicking a temporary session attached it (attached 0 -> 1).
+PASS: Closing the local terminal detached it (attached 1 -> 0) without killing tmux.
+PASS: The exact temporary session was removed; pre-existing sessions remained.
+
+The test did not restart the real server or invoke a paid Agent request.

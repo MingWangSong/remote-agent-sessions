@@ -1,0 +1,20 @@
+TmuxDock 2.1.0 release verification
+Date: 2026-09-15
+
+PASS 26/26 unit, persistence, SSH argv/security and host registry checks
+PASS 12/12 real local tmux and Git integration checks
+PASS 9/9 source VS Code Extension Host checks
+PASS 9/9 installed VSIX Extension Host checks
+PASS real SSH lifecycle on an isolated test host using a random isolated tmux socket
+PASS default remote tmux session identity list unchanged before/after SSH acceptance
+PASS final VSIX source equality and bundled runtime dependency verification
+
+Final artifact: dist/tmuxdock-2.1.0.vsix
+SHA256: 0266123723d7880391f0486f6549f31afd56f32d465926688025c6619464985c
+Installed locally: local.remote-agent-sessions@2.1.0
+
+The final lifecycle coverage includes saved, recoverable and pre-existing sessions;
+real tmux rename/delete; metadata synchronization; ownership preservation; collision
+rejection; same-name replacement refusal; host-row-only New Session and Refresh actions;
+non-duplicated session descriptions;
+and the user-facing TmuxDock brand with compatibility IDs preserved.

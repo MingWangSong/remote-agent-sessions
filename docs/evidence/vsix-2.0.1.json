@@ -1,0 +1,16 @@
+{
+  "vscode": "1.137.0",
+  "extensionKind": "ui",
+  "transport": "local fake SSH process with isolated tmux socket",
+  "passed": 8,
+  "checks": [
+    "UI extension activates locally and registers multi-host commands",
+    "Host is the tree root and its remote tmux sessions are children",
+    "Create through SSH appears as a live managed child",
+    "Actual SSH terminal opens in the active editor area and is reused",
+    "Closing the local terminal detaches while remote tmux survives",
+    "SSH refresh snapshots a new remote window",
+    "Server loss remains recoverable in the local controller",
+    "Notes and host-aware details persist locally"
+  ]
+}

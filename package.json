@@ -1,0 +1,389 @@
+{
+  "name": "remote-agent-sessions",
+  "displayName": "TmuxDock",
+  "description": "Dock and manage persistent tmux sessions across SSH hosts from one local VS Code.",
+  "version": "2.1.0",
+  "icon": "media/icon.png",
+  "repository": { "type": "git", "url": "https://github.com/MingWangSong/remote-agent-sessions.git" },
+  "publisher": "mingwangsong",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "tmux",
+    "remote ssh",
+    "agent",
+    "session"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onView:remoteAgentSessions.sessions",
+    "onCommand:remoteAgentSessions.create",
+    "onCommand:remoteAgentSessions.refresh",
+    "onCommand:remoteAgentSessions.attach",
+    "onCommand:remoteAgentSessions.restore",
+    "onCommand:remoteAgentSessions.adopt",
+    "onCommand:remoteAgentSessions.rename",
+    "onCommand:remoteAgentSessions.delete",
+    "onCommand:remoteAgentSessions.addNote",
+    "onCommand:remoteAgentSessions.terminate",
+    "onCommand:remoteAgentSessions.forget",
+    "onCommand:remoteAgentSessions.showDetails",
+    "onCommand:remoteAgentSessions.addHost",
+    "onCommand:remoteAgentSessions.removeHost",
+    "onCommand:remoteAgentSessions.editHost",
+    "onCommand:remoteAgentSessions.openSshTerminal",
+    "onCommand:remoteAgentSessions.openWorkspace",
+    "onCommand:remoteAgentSessions.importBackup",
+    "onCommand:remoteAgentSessions.importLegacy",
+    "onStartupFinished"
+  ],
+  "scripts": {
+    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js",
+    "test": "node --test test/*.test.js",
+    "verify": "npm run check && npm test",
+    "test:integration": "node --test --test-concurrency=1 integration/tmux.integration.js",
+    "test:ssh": "node --test --test-concurrency=1 integration/ssh.integration.js",
+    "test:vscode": "node scripts/test-vscode.js",
+    "package": "node scripts/package.js",
+    "verify:package": "node scripts/verify-package.js"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "remoteAgentSessions.addHost",
+        "title": "Add SSH Host",
+        "icon": "$(add)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.editHost",
+        "title": "Edit Host Configuration",
+        "icon": "$(settings-gear)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.removeHost",
+        "title": "Remove SSH Host",
+        "icon": "$(remove-close)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.openSshTerminal",
+        "title": "Open SSH Terminal",
+        "icon": "$(terminal)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.openWorkspace",
+        "title": "Open Remote Workspace",
+        "icon": "$(folder-opened)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.importBackup",
+        "title": "Import Session Backup",
+        "icon": "$(cloud-upload)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.importLegacy",
+        "title": "Import 1.x Metadata",
+        "icon": "$(cloud-download)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.refresh",
+        "title": "Refresh Sessions",
+        "icon": "$(refresh)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.create",
+        "title": "New tmux Session",
+        "icon": "$(new-folder)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.attach",
+        "title": "Attach Session",
+        "icon": "$(terminal)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.restore",
+        "title": "Restore Session",
+        "icon": "$(debug-restart)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.adopt",
+        "title": "Enable Recovery",
+        "icon": "$(save)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.rename",
+        "title": "Rename Session",
+        "icon": "$(edit)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.delete",
+        "title": "Delete Session",
+        "icon": "$(trash)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.addNote",
+        "title": "Edit Session Note",
+        "icon": "$(note)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.terminate",
+        "title": "Terminate tmux Session",
+        "icon": "$(close)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.forget",
+        "title": "Forget Session Record",
+        "icon": "$(trash)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.showDetails",
+        "title": "Show Session Details",
+        "icon": "$(info)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.editCommand",
+        "title": "Edit Restore Command",
+        "icon": "$(code)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.export",
+        "title": "Export Session Backup",
+        "icon": "$(export)",
+        "category": "TmuxDock"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "remoteAgentSessions",
+          "title": "TmuxDock",
+          "icon": "media/sessions.svg"
+        }
+      ]
+    },
+    "views": {
+      "remoteAgentSessions": [
+        {
+          "id": "remoteAgentSessions.sessions",
+          "name": "Remote tmux Sessions"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "remoteAgentSessions.sessions",
+        "contents": "Dock and manage tmux sessions across SSH hosts from this local VS Code.\n[Add SSH Host](command:remoteAgentSessions.addHost)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "remoteAgentSessions.addHost",
+          "when": "view == remoteAgentSessions.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.importBackup",
+          "when": "view == remoteAgentSessions.sessions",
+          "group": "actions@1"
+        },
+        {
+          "command": "remoteAgentSessions.export",
+          "when": "view == remoteAgentSessions.sessions",
+          "group": "actions@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "remoteAgentSessions.editHost",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
+          "group": "host@1"
+        },
+        {
+          "command": "remoteAgentSessions.create",
+          "when": "view == remoteAgentSessions.sessions && viewItem == sshHostOnline",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteAgentSessions.refresh",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
+          "group": "inline@2"
+        },
+        {
+          "command": "remoteAgentSessions.openWorkspace",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
+          "group": "host@2"
+        },
+        {
+          "command": "remoteAgentSessions.openSshTerminal",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
+          "group": "host@3"
+        },
+        {
+          "command": "remoteAgentSessions.importLegacy",
+          "when": "view == remoteAgentSessions.sessions && viewItem == sshHostOnline",
+          "group": "host@4"
+        },
+        {
+          "command": "remoteAgentSessions.removeHost",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
+          "group": "danger@9"
+        },
+        {
+          "command": "remoteAgentSessions.attach",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sessionLive/",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteAgentSessions.restore",
+          "when": "view == remoteAgentSessions.sessions && viewItem == sessionRecoverable",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteAgentSessions.showDetails",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.adopt",
+          "when": "view == remoteAgentSessions.sessions && viewItem == sessionLiveUnmanaged",
+          "group": "navigation@2"
+        },
+        {
+          "command": "remoteAgentSessions.rename",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|LiveUnmanaged|Recoverable)/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "remoteAgentSessions.addNote",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable|Unavailable)/",
+          "group": "navigation@4"
+        },
+        {
+          "command": "remoteAgentSessions.delete",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|LiveUnmanaged|Recoverable)/",
+          "group": "danger@1"
+        },
+        {
+          "command": "remoteAgentSessions.terminate",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sessionLive/",
+          "group": "danger@2"
+        },
+        {
+          "command": "remoteAgentSessions.forget",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable|Unavailable)/",
+          "group": "danger@3"
+        },
+        {
+          "command": "remoteAgentSessions.editCommand",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable|Unavailable)/",
+          "group": "navigation@5"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "TmuxDock",
+      "properties": {
+        "remoteAgentSessions.sshPath": {
+          "type": "string",
+          "default": "ssh",
+          "description": "Path to the OpenSSH client on the local machine.",
+          "scope": "machine"
+        },
+        "remoteAgentSessions.connectTimeout": {
+          "type": "number",
+          "default": 10,
+          "minimum": 3,
+          "maximum": 120,
+          "description": "Timeout in seconds for non-interactive SSH checks.",
+          "scope": "machine"
+        },
+        "remoteAgentSessions.multiplexSsh": {
+          "type": "boolean",
+          "default": true,
+          "description": "Reuse SSH connections on macOS/Linux to make multi-session refreshes fast. Disabled automatically on Windows.",
+          "scope": "machine"
+        },
+        "remoteAgentSessions.attachOnCreate": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open a VS Code terminal and attach immediately after creating a session.",
+          "scope": "machine"
+        },
+        "remoteAgentSessions.sessionTerminalLocation": {
+          "type": "string",
+          "enum": [
+            "editor",
+            "panel"
+          ],
+          "enumDescriptions": [
+            "Open attached sessions as terminal editors in the central editor area.",
+            "Open attached sessions in the integrated terminal panel."
+          ],
+          "default": "editor",
+          "description": "Where an attached tmux session is displayed.",
+          "scope": "machine"
+        },
+        "remoteAgentSessions.restoreCommands": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "default": "ask",
+          "description": "Whether saved window commands are executed when rebuilding a session.",
+          "scope": "machine"
+        },
+        "remoteAgentSessions.refreshInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 3600,
+          "description": "Seconds between local SSH refreshes and remote layout snapshots.",
+          "scope": "machine"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "proper-lockfile": "4.1.2"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "3.9.2"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true,
+      "description": "Host records and transport settings are machine-scoped and are not read from workspace files."
+    },
+    "virtualWorkspaces": { "supported": true }
+  }
+}

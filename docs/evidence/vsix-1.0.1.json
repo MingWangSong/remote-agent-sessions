@@ -1,0 +1,13 @@
+{
+  "vscode": "1.137.0",
+  "passed": 7,
+  "checks": [
+    "Extension activates and all contributed commands are registered",
+    "Create session appears as a live attachable item in actual TreeDataProvider",
+    "Actual VS Code terminal attaches, repeated clicks reuse it",
+    "Closing terminal detaches while the tmux process continues",
+    "Background refresh automatically snapshots a new tmux window",
+    "Server-loss recovery command rebuilds and attaches in VS Code",
+    "Task notes and details remain available after manager reload"
+  ]
+}

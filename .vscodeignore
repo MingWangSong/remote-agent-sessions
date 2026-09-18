@@ -1,0 +1,12 @@
+.gitignore
+.vscode/**
+test/**
+integration/**
+scripts/**
+.github/**
+node_modules/@vscode/**
+package-lock.json
+*.vsix
+test-results/**
+docs/**
+dist/**

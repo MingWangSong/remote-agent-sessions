@@ -1,0 +1,56 @@
+Remote Agent Sessions 1.0.1 — 2026-09-13
+Commands: npm run verify && npm run test:integration && RAS_TEST_VSIX=../remote-agent-sessions-1.0.1.vsix npm run test:vscode
+Final command exit code: 0
+Environment: actual local macOS / VS Code 1.137.0; isolated random tmux socket and VS Code profile.
+Result: 16 unit/persistence + 11 tmux/Git + 7 installed-VSIX host checks passed.
+Note: the first sandbox-restricted integration run failed to create tmux panes. The same unmodified runtime passed after execution with approved host permissions. Those failures are not counted as passing tests.
+Below is the relevant final output excerpt; startup diagnostics and early output chunk omitted.
+
+✔ store: private atomic database, backup and legacy schema round-trip (32.85ms)
+✔ store: 6 separate writer processes preserve all 60 updates (925.843417ms)
+✔ store: corrupt database is never silently overwritten (2.653916ms)
+✔ store: invalid record and multiline command rejected without altering prior data (11.374875ms)
+✔ store: failed mutation releases lock and rolls back record changes (22.061708ms)
+✔ store: interrupted writer stale lock is recovered (20.00075ms)
+✔ store: failed disk commit preserves last good data and later writes can succeed (20.848ms)
+✔ parseTmuxList parses the stable field-separated format (2.419375ms)
+✔ TmuxClient passes commands as argv instead of shell strings (1.08375ms)
+✔ TmuxClient treats an absent tmux server as an empty list (0.367583ms)
+✔ TmuxClient does not hide no-server-shaped errors from mutating commands (0.865458ms)
+ℹ tests 16
+ℹ suites 0
+ℹ pass 16
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1141.773833
+> remote-agent-sessions@1.0.1 test:integration
+✔ real tmux: create, run command, persist notes, reload manager and discover unmanaged sessions (288.430041ms)
+✔ real tmux: server loss, all windows/panes/directories reconstructed and commands kept (635.532583ms)
+✔ real tmux: concurrent create from independent managers uses unique names without lost records (538.273042ms)
+✔ real tmux: repeated/concurrent restore never executes a command twice (702.573125ms)
+✔ real tmux: manual rename preserves identity, while same-name replacement is a conflict (339.424042ms)
+✔ real tmux: missing directory fails before creating any restored process (206.160375ms)
+✔ real tmux: mid-restore failure rolls back shells but keeps recovery data (374.717333ms)
+✔ real tmux: adopted base-index=1 sessions preserve panes, and forget leaves processes running (307.372792ms)
+✔ real tmux: command restore disabled opens shells without side effects (552.313042ms)
+✔ real tmux: v0.1 records migrate without losing configured commands (91.168583ms)
+✔ real Git: repository, branch and detached HEAD are captured from the task directory (256.180917ms)
+ℹ tests 11
+ℹ suites 0
+ℹ pass 11
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4390.896125
+> remote-agent-sessions@1.0.1 test:vscode
+PASS: Extension activates and all contributed commands are registered
+PASS: Create session appears as a live attachable item in actual TreeDataProvider
+PASS: Actual VS Code terminal attaches, repeated clicks reuse it
+PASS: Closing terminal detaches while the tmux process continues
+PASS: Background refresh automatically snapshots a new tmux window
+PASS: Server-loss recovery command rebuilds and attaches in VS Code
+PASS: Task notes and details remain available after manager reload
+Exit code:   0

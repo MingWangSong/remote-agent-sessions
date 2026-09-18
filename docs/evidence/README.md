@@ -1,0 +1,39 @@
+# 验证证据索引
+
+## 2.1.0（2026-09-15）
+
+2.1.0 将用户可见品牌更新为 TmuxDock，并增加服务器行 New tmux Session、真实 tmux Rename 和永久 Delete。26 项单元/持久化/安全测试、12 项真实 tmux/Git、9 项源码宿主和 9 项最终 VSIX 宿主检查全部通过；隔离测试主机在随机隔离 socket 上完成创建、恢复、重命名和删除，默认 tmux server 前后列表一致。本机 VS Code 已安装 `local.remote-agent-sessions@2.1.0`。
+
+- `vsix-2.1.0.json`：最终 VSIX 的 9 项宿主结果。
+- `release-2.1.0.txt`：测试矩阵、真实 SSH 与包校验摘要。
+
+## 2.0.1（2026-09-15）
+
+2.0.1 显式把 session 终端创建在中央活动编辑器列。源码和最终 VSIX 宿主测试均检查 `creationOptions.location.viewColumn` 为 Active、`preserveFocus` 为 false；本机真实 VS Code 点击隔离测试临时会话后，也确认出现中央 Terminal Editor 标签，关闭标签只 detach，不终止 tmux。
+
+- `vsix-2.0.1.json`：带中央编辑区位置断言的最终 VSIX 宿主结果。
+- `release-2.0.1.txt`：自动化和真实 UI 验收摘要。
+
+## 2.0.0（2026-09-14）
+
+2.0.0 把控制器移至本地 VS Code，通过本机 OpenSSH 管理远端 tmux。本轮通过 24 项单元/持久化/SSH 测试、11 项真实 tmux/Git、8 项源码宿主和 8 项最终 VSIX 宿主检查。另在隔离测试主机的随机隔离 socket 完成真实 SSH 创建与重建，并从本地 VS Code 点击真实会话验证 attach 和关闭终端保活；预先存在的会话未被终止。
+
+- `vsix-2.0.0.json`：最终 VSIX 在隔离 VS Code profile 中的宿主检查。
+- `ssh-2.0.0.txt`：真实 SSH 隔离 socket 和真实 UI 操作结果摘要。
+- `release-2.0.0.txt`：最终测试矩阵与包校验摘要。
+
+真实主机测试使用主机别名，不收录 IP、用户名、目录内容或 Agent 对话。未重启真实服务器，未运行付费 Agent。
+
+## 1.x（2026-09-13）
+
+2026-09-13：1.0.0 在本机 VS Code 1.137.0 通过 Remote SSH 连接用户实际 Linux x64 服务器完成 13 项宿主检查，并在远端 Node 20.20.2 / tmux 3.4 执行 16 项单元/持久化测试及 11 项真实 tmux/Git 集成测试，均通过。
+
+远端宿主检查覆盖：远端激活、创建/显示、终端连接/复用、关闭终端保活、自动布局快照、纳管/忘记、保存备注、关闭并重开 SSH 窗口、重连、隔离 tmux server 丢失、布局与配置命令重建、详情持久化、测试清理。原有 4 个会话身份与创建时间未变。
+
+- `remote-core-1.0.0.txt`：原始服务端 TAP 输出，16 + 11 全部通过。
+- `release-1.0.1.txt`：本轮品牌更新版本的验证输出。
+- `vsix-1.0.1.json`：本轮最终 VSIX 的实际 VS Code 扩展宿主检查结果。
+
+1.0.1 仅增加图标、文档和打包/测试基础设施，src/ 会话运行逻辑不变。不能将 1.0.0 的远程宿主验收说成已在远端重新测试 1.0.1。
+
+详细私有主机标识、存储路径和原始环境 JSON 不纳入面向公开推广的证据目录；完整实机报告仍保留在原交付目录。测试使用独立 socket；未重启真实服务器，未调用真实付费 Agent。

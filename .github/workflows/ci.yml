@@ -1,0 +1,31 @@
+name: Verify extension
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - if: runner.os == 'macOS'
+        run: brew install tmux
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run test:integration
+      - if: runner.os == 'Linux'
+        run: xvfb-run -a npm run test:vscode
+      - run: npm run package
+      - run: npm run verify:package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.os }}
+          path: dist/*.vsix*

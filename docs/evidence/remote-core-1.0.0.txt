@@ -1,0 +1,160 @@
+
+unit/persistence
+TAP version 13
+# Subtest: slugify creates tmux-safe names
+ok 1 - slugify creates tmux-safe names
+  ---
+  duration_ms: 1.200384
+  ...
+# Subtest: mergeSessions distinguishes live, recoverable, and unmanaged sessions
+ok 2 - mergeSessions distinguishes live, recoverable, and unmanaged sessions
+  ---
+  duration_ms: 5.754912
+  ...
+# Subtest: manager: failed creation retains durable recovery intent
+ok 3 - manager: failed creation retains durable recovery intent
+  ---
+  duration_ms: 30.728315
+  ...
+# Subtest: manager: tmux failure preserves visible history but never marks it recoverable
+ok 4 - manager: tmux failure preserves visible history but never marks it recoverable
+  ---
+  duration_ms: 29.464136
+  ...
+# Subtest: manager: snapshots bind saved commands to pane IDs despite window rename/reorder
+ok 5 - manager: snapshots bind saved commands to pane IDs despite window rename/reorder
+  ---
+  duration_ms: 0.837705
+  ...
+# Subtest: store: private atomic database, backup and legacy schema round-trip
+ok 6 - store: private atomic database, backup and legacy schema round-trip
+  ---
+  duration_ms: 44.272958
+  ...
+# Subtest: store: 6 separate writer processes preserve all 60 updates
+ok 7 - store: 6 separate writer processes preserve all 60 updates
+  ---
+  duration_ms: 1194.260287
+  ...
+# Subtest: store: corrupt database is never silently overwritten
+ok 8 - store: corrupt database is never silently overwritten
+  ---
+  duration_ms: 2.319858
+  ...
+# Subtest: store: invalid record and multiline command rejected without altering prior data
+ok 9 - store: invalid record and multiline command rejected without altering prior data
+  ---
+  duration_ms: 12.228103
+  ...
+# Subtest: store: failed mutation releases lock and rolls back record changes
+ok 10 - store: failed mutation releases lock and rolls back record changes
+  ---
+  duration_ms: 52.437557
+  ...
+# Subtest: store: interrupted writer stale lock is recovered
+ok 11 - store: interrupted writer stale lock is recovered
+  ---
+  duration_ms: 23.489487
+  ...
+# Subtest: store: failed disk commit preserves last good data and later writes can succeed
+ok 12 - store: failed disk commit preserves last good data and later writes can succeed
+  ---
+  duration_ms: 23.845889
+  ...
+# Subtest: parseTmuxList parses the stable field-separated format
+ok 13 - parseTmuxList parses the stable field-separated format
+  ---
+  duration_ms: 1.228446
+  ...
+# Subtest: TmuxClient passes commands as argv instead of shell strings
+ok 14 - TmuxClient passes commands as argv instead of shell strings
+  ---
+  duration_ms: 0.498511
+  ...
+# Subtest: TmuxClient treats an absent tmux server as an empty list
+ok 15 - TmuxClient treats an absent tmux server as an empty list
+  ---
+  duration_ms: 0.812478
+  ...
+# Subtest: TmuxClient does not hide no-server-shaped errors from mutating commands
+ok 16 - TmuxClient does not hide no-server-shaped errors from mutating commands
+  ---
+  duration_ms: 0.400946
+  ...
+1..16
+# tests 16
+# suites 0
+# pass 16
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1402.745678
+
+
+tmux/Git integration
+TAP version 13
+# Subtest: real tmux: create, run command, persist notes, reload manager and discover unmanaged sessions
+ok 1 - real tmux: create, run command, persist notes, reload manager and discover unmanaged sessions
+  ---
+  duration_ms: 142.052061
+  ...
+# Subtest: real tmux: server loss, all windows/panes/directories reconstructed and commands kept
+ok 2 - real tmux: server loss, all windows/panes/directories reconstructed and commands kept
+  ---
+  duration_ms: 395.529421
+  ...
+# Subtest: real tmux: concurrent create from independent managers uses unique names without lost records
+ok 3 - real tmux: concurrent create from independent managers uses unique names without lost records
+  ---
+  duration_ms: 316.053943
+  ...
+# Subtest: real tmux: repeated/concurrent restore never executes a command twice
+ok 4 - real tmux: repeated/concurrent restore never executes a command twice
+  ---
+  duration_ms: 445.440473
+  ...
+# Subtest: real tmux: manual rename preserves identity, while same-name replacement is a conflict
+ok 5 - real tmux: manual rename preserves identity, while same-name replacement is a conflict
+  ---
+  duration_ms: 229.788421
+  ...
+# Subtest: real tmux: missing directory fails before creating any restored process
+ok 6 - real tmux: missing directory fails before creating any restored process
+  ---
+  duration_ms: 117.083146
+  ...
+# Subtest: real tmux: mid-restore failure rolls back shells but keeps recovery data
+ok 7 - real tmux: mid-restore failure rolls back shells but keeps recovery data
+  ---
+  duration_ms: 195.552027
+  ...
+# Subtest: real tmux: adopted base-index=1 sessions preserve panes, and forget leaves processes running
+ok 8 - real tmux: adopted base-index=1 sessions preserve panes, and forget leaves processes running
+  ---
+  duration_ms: 170.352268
+  ...
+# Subtest: real tmux: command restore disabled opens shells without side effects
+ok 9 - real tmux: command restore disabled opens shells without side effects
+  ---
+  duration_ms: 368.574453
+  ...
+# Subtest: real tmux: v0.1 records migrate without losing configured commands
+ok 10 - real tmux: v0.1 records migrate without losing configured commands
+  ---
+  duration_ms: 48.948286
+  ...
+# Subtest: real Git: repository, branch and detached HEAD are captured from the task directory
+ok 11 - real Git: repository, branch and detached HEAD are captured from the task directory
+  ---
+  duration_ms: 110.34712
+  ...
+1..11
+# tests 11
+# suites 0
+# pass 11
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2581.568282

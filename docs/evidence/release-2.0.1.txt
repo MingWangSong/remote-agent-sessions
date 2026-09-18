@@ -1,0 +1,14 @@
+Remote Agent Sessions 2.0.1 release verification
+Date: 2026-09-15
+
+PASS 24/24 unit, persistence, SSH argv/security and host registry checks
+PASS 11/11 real local tmux and Git integration checks
+PASS 8/8 source VS Code extension-host checks
+PASS 8/8 packaged VSIX extension-host checks
+PASS terminal creationOptions.location is active editor with preserveFocus=false
+PASS real local VS Code -> isolated test host central terminal-editor acceptance
+PASS closing the editor detached without terminating the temporary tmux session
+PASS the temporary session was removed and five existing sessions remained
+PASS VSIX source equality, runtime dependencies and icon integrity
+
+Final VSIX SHA-256: eef965af57f2bdf5c44748083ec7d99b0cec90a984a444bc2a8021e7ac725163

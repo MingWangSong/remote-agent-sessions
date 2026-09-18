@@ -1,0 +1,12 @@
+Remote Agent Sessions 2.0.0 release verification
+Date: 2026-09-14
+
+PASS 24/24 unit, persistence, SSH argv/security and host registry checks
+PASS 11/11 real local tmux and Git integration checks
+PASS 8/8 source VS Code extension-host checks
+PASS 8/8 packaged VSIX extension-host checks
+PASS real SSH isolated-socket integration on an isolated test host
+PASS real local VS Code -> isolated test host UI attach/detach acceptance
+PASS VSIX source equality, runtime dependencies and icon integrity
+
+Final VSIX SHA-256: 5ba523d88ec38f8c41d98e5f40e1a0ed15bbdab35a57c9840e9601be3afe5bb6
