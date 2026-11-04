@@ -48,7 +48,9 @@ test('ordinary, exited and malformed terminals cannot be claimed as recovered se
 test('saved attach process checks identity before attach and contains no restore or agent command', () => {
   const { live } = fixture();
   const script = guardedAttachScript({ executable: 'tmux', prefixArgs: ['-L', 'isolated'] }, live);
-  assert.ok(script.indexOf('display-message') < script.indexOf('attach-session'));
+  assert.ok(script.indexOf('list-sessions') < script.indexOf('attach-session'));
+  assert.ok(!script.includes('display-message'), 'never resolve a vanished target on tmux 3.2a');
+  assert.ok(script.includes('grep -F -x --'), 'match the complete identity line literally');
   assert.ok(script.includes('exit 1'));
   assert.ok(!/new-session|send-keys|claude|codex/.test(script));
   assert.throws(() => guardedAttachScript({ executable: 'tmux', prefixArgs: [] }, { ...live, id: null }), /verified tmux identity/);

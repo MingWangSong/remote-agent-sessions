@@ -101,8 +101,10 @@ function guardedAttachScript(tmux, live) {
   const identity = `${live.id}|${created}|${live.owner || ''}`;
   // VS Code may revive the saved process after a full app restart too. Check the
   // original server identity before attach, rather than trusting a reused $ID.
-  return `identity=$(${command(['display-message', '-p', '-t', live.id, '#{session_id}|#{session_created}|#{@ras_id}'])}) || exit $?; ` +
-    `[ "$identity" = ${shellQuote(identity)} ] || { printf '%s\\n' 'TmuxDock: original session is unavailable or its identity changed. Refresh and reconnect from the sidebar.' >&2; exit 1; }; ` +
+  // tmux 3.2a can terminate its server when display-message targets a vanished
+  // session. Enumerate identities without resolving a possibly stale target.
+  return `identities=$(${command(['list-sessions', '-F', '#{session_id}|#{session_created}|#{@ras_id}'])}) || exit $?; ` +
+    `printf '%s\\n' "$identities" | grep -F -x -- ${shellQuote(identity)} >/dev/null || { printf '%s\\n' 'TmuxDock: original session is unavailable or its identity changed. Refresh and reconnect from the sidebar.' >&2; exit 1; }; ` +
     `exec ${command(['attach-session', '-t', live.id])}`;
 }
 

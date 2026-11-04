@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.1 — 2026-11-04
+
+- Avoid resolving stale session targets in the saved terminal connection guard, which can terminate a tmux 3.2a server.
+- Verify the exact original ID, creation time and owner through a literal full-line match in the session inventory before attach.
+- Keep all-platform CI diagnostics and assert that same-name replacements remain alive and unattached.
+
 ## 2.4.0 — 2026-11-04
 
 - Keep attached terminal tabs across Reload Window through native terminal persistence, preserving editor layout, names and active tabs.

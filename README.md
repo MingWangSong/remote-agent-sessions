@@ -1,4 +1,4 @@
-# TmuxDock 2.4.0
+# TmuxDock 2.4.1
 
 把多台 SSH 服务器上的 tmux 会话停靠到本地 VS Code：一处查看、连接、记录和重建；特别适合 Claude Code、Codex 等 Agent CLI。
 
@@ -62,7 +62,7 @@ Codex 使用官方 Codex 扩展的 OpenAI Blossom 标识（浅色主题黑色、
 
 要求：本机 VS Code 1.90+ 和 OpenSSH；远端 Linux/macOS、tmux 3.2+。Windows 本机需安装并配置 OpenSSH Client。
 
-1. 在本地 VS Code 窗口运行 **Extensions: Install from VSIX...**，选择 `tmuxdock-2.4.0.vsix`。
+1. 在本地 VS Code 窗口运行 **Extensions: Install from VSIX...**，选择 `tmuxdock-2.4.1.vsix`。
 2. 在扩展详情中确认显示 **Installed Locally**，不要点击 Install in SSH。
 3. 点击左侧 **TmuxDock** 图标，再点击顶部 **Add SSH Host** 图标。
 4. 输入 `~/.ssh/config` 中的别名（例如 `dev-server`）或 `user@host`；tmux socket 留空即管理默认 server，也可填写命名 socket 进行隔离。首次主机指纹确认和交互式登录请先在普通终端执行一次 `ssh 主机`。
@@ -138,7 +138,7 @@ npm run test:vscode
 RAS_SSH_HOST=你的测试别名 npm run test:ssh
 npm run package
 npm run verify:package
-RAS_TEST_VSIX=dist/tmuxdock-2.4.0.vsix npm run test:vscode
+RAS_TEST_VSIX=dist/tmuxdock-2.4.1.vsix npm run test:vscode
 ```
 
 测试使用临时目录、随机 tmux socket 和隔离的 VS Code profile。真实 SSH 测试只读比较默认 tmux server，在随机 socket 上创建和清理测试会话。

@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Dock and manage persistent tmux sessions across SSH hosts from one local VS Code.",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
