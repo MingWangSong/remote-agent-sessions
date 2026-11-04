@@ -656,21 +656,18 @@ async function activate(context) {
 
   command('remoteAgentSessions.delete', async (item) => {
     const resolved = await resolveSession(item, provider,
-      (entry) => entry.status === 'live' || (entry.managed && entry.status === 'recoverable'));
+      (entry) => entry.status === 'live');
     if (!resolved) return;
-    const live = resolved.entry.status === 'live';
     const answer = await vscode.window.showWarningMessage(
-      live
-        ? `Permanently delete ${resolved.entry.tmuxSession} on ${resolved.controller.host.label}? All processes will stop and saved metadata will be removed.`
-        : `Delete the saved record for ${resolved.entry.title}? No live tmux session exists.`,
-      { modal: true, detail: 'This action cannot be undone.' }, 'Delete Session'
+      `Delete ${resolved.entry.tmuxSession} on ${resolved.controller.host.label}? All processes inside it will stop.`,
+      { modal: true, detail: 'The last working directories and original Agent conversations will be saved. Restore recreates the same tmux name and resumes those conversations. Use Forget Session Record to permanently remove the saved entry.' }, 'Delete Session'
     );
     if (answer !== 'Delete Session') return;
     const key = `${resolved.controller.host.id}:${resolved.entry.id}`;
+    await resolved.controller.manager.deleteSession(resolved.entry);
     const terminal = terminals.get(key);
     if (terminal && terminal.exitStatus === undefined) terminal.dispose();
     terminals.delete(key);
-    await resolved.controller.manager.deleteSession(resolved.entry);
     provider.changed();
   });
 

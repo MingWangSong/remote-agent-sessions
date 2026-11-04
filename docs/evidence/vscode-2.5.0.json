@@ -1,0 +1,24 @@
+{
+  "vscode": "1.143.1",
+  "extensionKind": "ui",
+  "transport": "local fake SSH process with isolated tmux socket",
+  "passed": 16,
+  "checks": [
+    "UI extension activates locally and registers multi-host commands",
+    "Host is the tree root and its remote tmux sessions are children",
+    "Legacy Codex binding selects a readable history instead of requiring a pasted UUID",
+    "Create through SSH appears as a live managed child",
+    "Running and stopped sessions have separate stable groups; unavailable is not stopped",
+    "Codex, Claude and shell have distinct icons in both groups; rows show no branch",
+    "Actual SSH terminal opens in the active editor area and is reused",
+    "Reopening an existing terminal bypasses a slow host refresh without SSH",
+    "Compact same-name tabs retain host identity in status, tooltip and details",
+    "Editor tab switching synchronizes session identity and visible sidebar selection",
+    "Tree drag-and-drop persists a host-local order and reset restores creation order",
+    "Closing the local terminal detaches while remote tmux survives",
+    "SSH refresh snapshots a new remote window",
+    "Server loss remains recoverable in the local controller",
+    "Notes and host-aware details persist locally",
+    "Delete retains recovery and Forget removes saved records"
+  ]
+}

@@ -65,6 +65,8 @@ test('local controller manages and rebuilds an isolated tmux server through real
   entry = manager.entries.find((candidate) => candidate.record?.id === record.id);
   await manager.deleteSession(entry);
   assert.equal(await tmux.exists('ssh-lifecycle-renamed'), false);
+  assert.equal((await manager.store.load()).length, 1);
+  await manager.forget(record);
   assert.equal((await manager.store.load()).length, 0);
   const after = (await defaultTmux.list()).map(({ id, created, name }) => ({ id, created, name }));
   assert.deepEqual(after, before, 'default tmux server must remain unchanged');

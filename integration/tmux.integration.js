@@ -317,7 +317,7 @@ test('real Git: repository, branch and detached HEAD are captured from the task 
   assert.equal(manager.records[0].gitBranch, hash);
 });
 
-test('real tmux: rename and delete cover saved, recoverable and pre-existing lifecycle', async (t) => {
+test('real tmux: rename, recoverable delete and explicit forget preserve the lifecycle', async (t) => {
   const { directory, tmux, store, manager } = await fixture(t);
   const record = await manager.create({ title: 'Lifecycle', cwd: directory });
   const owner = (await tmux.list())[0].owner;
@@ -329,11 +329,17 @@ test('real tmux: rename and delete cover saved, recoverable and pre-existing lif
   assert.equal((await store.load())[0].tmuxSession, 'lifecycle-renamed');
   await manager.deleteSession(manager.entries[0]);
   assert.equal(await tmux.exists('lifecycle-renamed'), false);
-  assert.equal((await store.load()).length, 0);
+  assert.equal((await store.load()).length, 1);
+  await manager.restore(record, false);
+  assert.equal(await tmux.exists('lifecycle-renamed'), true);
+  await manager.terminate(record);
+  await manager.forget(record);
 
   const recoverable = await manager.create({ title: 'Recoverable delete', cwd: directory });
   await manager.terminate(recoverable);
-  await manager.deleteSession(manager.entries.find((entry) => entry.record?.id === recoverable.id));
+  await manager.deleteSession(recoverable);
+  assert.equal((await store.load()).length, 1, 'repeated delete must retain the checkpoint');
+  await manager.forget(recoverable);
   assert.equal((await store.load()).length, 0);
 
   await tmux.create('manual-old', directory);
@@ -345,4 +351,26 @@ test('real tmux: rename and delete cover saved, recoverable and pre-existing lif
   unmanaged = manager.entries.find((entry) => entry.tmuxSession === 'manual-new');
   await manager.deleteSession(unmanaged);
   assert.equal(await tmux.exists('manual-new'), false);
+});
+
+test('real tmux: Delete captures final cwd for every pane without polling; restore rebuilds them', async t => {
+  const { directory, tmux, store, manager } = await fixture(t);
+  const last = path.join(directory, "last ' 中文"); await fs.mkdir(last);
+  const record = await manager.create({ title: 'final-directories', cwd: directory });
+  const first = (await tmux.listWindows(record.tmuxSession))[0].panes[0].id;
+  const other = await tmux.split(first, directory);
+  await tmux.createWindow(record.tmuxSession, { name: 'second', cwd: last });
+  await tmux.sendCommand(record.tmuxSession, first, 'cd ' + require('../src/ssh').shellQuote(last));
+  await tmux.select(other);
+  await eventually(async () => (await tmux.listWindows(record.tmuxSession))[0].panes[0].cwd === await fs.realpath(last));
+  const before = await tmux.listWindows(record.tmuxSession);
+  await manager.deleteSession(record);
+  const saved = (await store.load())[0];
+  assert.equal(saved.cwd, await fs.realpath(directory), 'root directory tracks the active pane');
+  assert.deepEqual(saved.windows.map(w => w.panes.map(p => p.cwd)), before.map(w => w.panes.map(p => p.cwd)));
+  const reloaded = new SessionManager(store, tmux); await reloaded.initialize();
+  await reloaded.restore(record, false);
+  const after = await tmux.listWindows(record.tmuxSession);
+  assert.deepEqual(after.map(w => w.panes.map(p => p.cwd)), before.map(w => w.panes.map(p => p.cwd)));
+  assert.equal(after.find(w => w.active).panes.findIndex(p => p.active), 1);
 });

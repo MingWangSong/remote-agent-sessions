@@ -15,11 +15,11 @@ function validateBinding(agent) {
   }
   return agent;
 }
-function agentCommand(agent, fresh = false) {
+function agentCommand(agent, fresh = false, cwd) {
   validateBinding(agent);
   const args = agent.type === 'claude'
-    ? ['claude', fresh ? '--session-id' : '--resume', agent.sessionId, '--name', agent.name]
-    : ['codex', 'resume', agent.sessionId];
+    ? ['claude', fresh ? '--session-id' : '--resume', fresh ? agent.sessionId : (agent.transcriptPath || agent.sessionId), '--name', agent.name]
+    : ['codex', 'resume', agent.sessionId, ...(cwd ? ['--cd', cwd] : [])];
   return ['sh', '-c', AGENT_EXEC, 'tmuxdock-agent', ...args].map(shellQuote).join(' ');
 }
 function needsAgentBinding(record) {
@@ -88,7 +88,7 @@ class AgentSessions {
   async codex(callback) {
     const rpc = new RpcClient(this.transport.openProcess('sh', ['-c', AGENT_EXEC, 'tmuxdock-agent', 'codex', 'app-server']));
     try {
-      await rpc.request('initialize', { clientInfo: { name: 'tmuxdock', title: 'TmuxDock', version: '2.4.4' } });
+      await rpc.request('initialize', { clientInfo: { name: 'tmuxdock', title: 'TmuxDock', version: '2.5.0' } });
       rpc.notify('initialized');
       return await callback(rpc);
     } finally { await rpc.close(); }
@@ -120,7 +120,10 @@ class AgentSessions {
       const script = 'root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}; ' +
         'if test -d "$root/projects"; then find "$root/projects" -type f -name "$1.jsonl" -print -quit; fi';
       const result = await this.transport.run('sh', ['-c', script, 'tmuxdock-agent', agent.sessionId]);
-      if (!result.stdout.trim()) throw new Error('Original Claude conversation history was not found. It may not have been saved yet or may have been removed. No new conversation was created.');
+      const transcriptPath = result.stdout.trim();
+      if (!transcriptPath) throw new Error('Original Claude conversation history was not found. It may not have been saved yet or may have been removed. No new conversation was created.');
+      if (!transcriptPath.startsWith('/') || /[\x00\r\n]/.test(transcriptPath) || !transcriptPath.endsWith('/' + agent.sessionId + '.jsonl')) throw new Error('Invalid Claude transcript path');
+      return { ...agent, transcriptPath };
     }
     return agent;
   }

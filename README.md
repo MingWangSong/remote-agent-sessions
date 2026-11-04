@@ -1,4 +1,4 @@
-# TmuxDock 2.4.2
+# TmuxDock 2.5.0
 
 把多台 SSH 服务器上的 tmux 会话停靠到本地 VS Code：一处查看、连接、记录和重建；特别适合 Claude Code、Codex 等 Agent CLI。
 
@@ -14,7 +14,7 @@
 
 通过 **Claude Code CLI** 或 **Codex CLI** 选项新建时，Agent 对话默认使用最终的 tmux session 名（包括自动避重名后缀）。Claude 通过 `--session-id` / `--name` 初始化；Codex 通过官方 app-server 创建、命名并保存对话 ID，再按该 ID 打开 CLI。TmuxDock 不发送初始模型提示，不自动改变 CLI 的权限或沙箱配置。
 
-Stop / Terminate 保留原对话 ID 和每个 pane 的恢复绑定。点击停止组中的已绑定 Agent 会话，默认直接按 ID 恢复同一对话，而不是运行一个新的 `claude` / `codex`。配置 `restoreCommands=never` 仍只恢复 shell；其他自定义 pane 命令仍按原有策略询问。原对话历史必须仍保存在服务器上的 CLI 数据目录中；历史缺失时明确报错，不使用 `--last` 猜测，也不静默新建。Claude 首次交互尚未产生可保存历史时，不能承诺恢复一段不存在的对话。
+Delete / Stop / Terminate 会先保存删除前最后所在的目录、布局、原对话 ID 和每个 pane 的恢复绑定，再停止 tmux。Restore 会新建同名 tmux，进入保存的最后目录，并续接同一个 Agent 对话。点击停止组中的已绑定 Agent 会话，默认直接按 ID 恢复同一对话，而不是运行一个新的 `claude` / `codex`。配置 `restoreCommands=never` 仍只恢复 shell；其他自定义 pane 命令仍按原有策略询问。原对话历史必须仍保存在服务器上的 CLI 数据目录中；历史缺失时明确报错，不使用 `--last` 猜测，也不静默新建。Claude 首次交互尚未产生可保存历史时，不能承诺恢复一段不存在的对话。
 
 旧版本 Stop 记录没有保存对话 ID：右键 **Bind Original Agent Conversation**，粘贴原 CLI 对话 UUID，验证通过后绑定。此后可以直接续聊；恢复旧记录时也会提供绑定或只重建 shell 的选择。绑定不会复制或保存对话全文。普通 shell 与自定义命令不自动转换为 Agent 恢复。
 
@@ -100,11 +100,11 @@ macOS/Linux 默认使用 OpenSSH ControlMaster 复用两分钟连接，减少一
 | 会话右键 | Edit Session Note | 保存进度与下一步 |
 | 会话右键 | Edit Restore Command | 为窗口/分屏设置明确的 Agent 续聊或启动命令 |
 | 会话右键 | Rename Session | 只输入一次名称，同时作为列表显示名和真实远端 tmux 名 |
-| 会话右键 | Delete Session | 永久停止远端 tmux 并删除本地记录，需要二次确认 |
+| 会话右键 | Delete Session | 先保存最后目录和原 Agent 对话，再停止远端 tmux；保留恢复记录，需要确认 |
 | 会话右键 | Terminate | 终止远端 tmux 及其中进程，需要确认 |
 | 会话右键 | Forget | 只忘记本地记录，不终止远端进程 |
 
-`Delete Session` 是一键永久删除；`Terminate` 保留快照供以后重建，`Forget` 则保留远端进程。重命名与删除都会先核对会话身份，防止误操作一个同名但已被替换的 tmux。
+`Delete Session` 与 `Terminate` 都保留恢复记录；`Forget Session Record` 永久移除本地记录，不停止远端进程。删除前保存或对话校验失败时，正在运行的 session 会保留。旧版未绑定对话的 Agent 会话需要先绑定原对话，不能猜测 UUID；旧版已删除记录不保证可恢复。重命名与删除都会先核对会话身份，防止误操作一个同名但已被替换的 tmux。
 
 远端原本就存在的 tmux 和 TmuxDock 新建的会话使用同一列表、同一点击与右键操作，不再显示 `unmanaged` 类型。区别只在于旧会话尚未保存恢复快照；需要重启后重建时再点 **Enable Recovery** 即可。新建流程只询问一次 Session Name，工作目录使用可输入、可逐级进入的远端子目录选择器。
 

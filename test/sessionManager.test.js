@@ -51,7 +51,7 @@ test('manager delegates working-directory validation for SSH-backed paths', asyn
   await fs.rm(dir,{recursive:true,force:true});
 });
 
-test('manager renames and permanently deletes saved and pre-existing sessions safely', async (t) => {
+test('manager renames and deletes sessions with recovery records retained', async (t) => {
   const dir=await fs.mkdtemp(path.join(os.tmpdir(),'ras-lifecycle-'));
   t.after(()=>fs.rm(dir,{recursive:true,force:true}));
   const live=[];
@@ -72,7 +72,9 @@ test('manager renames and permanently deletes saved and pre-existing sessions sa
   assert.equal((await manager.store.load())[0].title,'Renamed managed');
   assert.equal(live[0].name,'managed-new');
   await manager.deleteSession(manager.entries[0]);
-  assert.equal((await manager.store.load()).length,0);
+  assert.equal((await manager.store.load()).length,1);
+  assert.equal(manager.entries[0].status,'recoverable');
+  await manager.forget(record);
   assert.equal(live.length,0);
 
   live.push({name:'manual',id:'$2',created:'2026-01-02T00:00:00.000Z',owner:null});
@@ -151,4 +153,75 @@ test('one inventory snapshot and one Git query serve multiple sessions in the sa
   await manager.refresh();
   assert.equal(inventoryCalls, 1); assert.equal(gitCalls, 1);
   assert.equal(manager.records.filter(record => record.windows.length === 1 && record.gitBranch === 'shared').length, 3);
+});
+
+async function deletionFixture(t) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ras-delete-safe-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new SessionStore(path.join(dir, 'sessions.json'));
+  const record = createRecord({ tmuxSession: 'task', cwd: dir,
+    windows: [{ id: '@1', name: 'agent', panes: [{ id: '%1', cwd: dir, command: null }] }] });
+  record.identityVersion = 1; await store.save([record]);
+  const live = [{ name: 'task', id: '$1', created: '2026-01-01T00:00:00.000Z', owner: record.id }];
+  let kills = 0;
+  const tmux = {
+    list: async () => structuredClone(live),
+    listWindows: async () => [{ id: '@1', name: 'agent', cwd: dir, panes: [{ id: '%1', cwd: dir, active: true }] }],
+    kill: async () => { kills++; live.splice(0); }
+  };
+  const manager = new SessionManager(store, tmux, { inspect: async () => ({}) });
+  return { dir, store, record, live, tmux, manager, kills: () => kills };
+}
+
+test('Delete never stops tmux if the final snapshot or durable checkpoint cannot be saved', async t => {
+  const f = await deletionFixture(t);
+  const before = await f.store.load();
+  const listWindows = f.tmux.listWindows;
+  f.tmux.listWindows = async () => { throw new Error('snapshot failed'); };
+  await assert.rejects(f.manager.deleteSession(f.record), /snapshot failed/);
+  assert.equal(f.kills(), 0); assert.deepEqual(await f.store.load(), before);
+  f.tmux.listWindows = listWindows;
+  f.store.write = async () => { throw new Error('disk full'); };
+  await assert.rejects(f.manager.deleteSession(f.record), /disk full/);
+  assert.equal(f.kills(), 0); assert.deepEqual(await f.store.load(), before);
+});
+
+test('failed remote stop retains a durable final checkpoint and can be retried', async t => {
+  const f = await deletionFixture(t); const kill = f.tmux.kill;
+  f.tmux.kill = async () => {
+    const saved = (await f.store.load())[0];
+    assert.equal(saved.stopCheckpoint.live.id, '$1');
+    assert.equal(saved.stopCheckpoint.version, 1);
+    throw new Error('SSH interrupted');
+  };
+  await assert.rejects(f.manager.deleteSession(f.record), /SSH interrupted/);
+  assert.equal(f.live.length, 1); assert.ok((await f.store.load())[0].stopCheckpoint);
+  f.tmux.kill = kill;
+  await f.manager.deleteSession(f.record);
+  assert.equal(f.live.length, 0); assert.equal(f.manager.entries[0].status, 'recoverable');
+  await f.manager.deleteSession(f.record);
+  assert.equal(f.kills(), 1); assert.equal((await f.store.load()).length, 1);
+});
+
+test('Delete preserves a same-name replacement that appears after the checkpoint', async t => {
+  const f = await deletionFixture(t); let calls = 0;
+  f.tmux.list = async () => {
+    if (++calls === 2) f.live[0] = { ...f.live[0], id: '$2', created: '2026-01-02T00:00:00.000Z' };
+    return structuredClone(f.live);
+  };
+  await assert.rejects(f.manager.deleteSession(f.record), /identity changed/);
+  assert.equal(f.kills(), 0); assert.equal(f.live[0].id, '$2');
+  assert.equal((await f.store.load())[0].stopCheckpoint.live.id, '$1');
+});
+
+test('Delete verifies saved Agent history before killing and preserves legacy unbound Agents', async t => {
+  const f = await deletionFixture(t);
+  const agent = { type: 'codex', sessionId: '550e8400-e29b-41d4-a716-446655440000', name: 'task', recoveryVersion: 1 };
+  await f.store.transaction(records => { records[0].agent = agent; records[0].windows[0].panes[0].agent = agent; });
+  f.manager.agents = { verify: async () => { throw new Error('original history missing'); } };
+  await assert.rejects(f.manager.deleteSession(f.record), /original history missing/);
+  assert.equal(f.kills(), 0);
+  await f.store.transaction(records => { records[0].agent = { type: 'codex' }; delete records[0].windows[0].panes[0].agent; });
+  await assert.rejects(f.manager.deleteSession(f.record), /Bind the original/);
+  assert.equal(f.kills(), 0);
 });

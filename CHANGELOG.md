@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.5.0 — 2026-11-05
+
+- Make Delete recoverable: durably save the final working directories, pane layout and original Agent conversation bindings before stopping tmux. Keep the saved entry in Stopped / Recoverable; Forget explicitly removes it.
+- Restore creates the same tmux name in the final saved directories and resumes the same Codex / Claude conversation. Pass Codex its explicit working directory and resolve Claude's transcript across project directories.
+- Preserve running sessions when snapshot persistence or conversation verification fails; recheck remote identity before stopping, and retain recovery data if stopping fails.
+- Cover Delete → manager reload → Restore with real tmux and isolated Agent fixtures, including changed directories, repeated recovery and missing history. No model requests are sent by these tests.
+
 ## 2.4.4 — 2026-11-04
 
 - Let legacy Codex records choose their original conversation from remote history by title, preview, date and working directory, with pagination, all-directory and archived-history views.

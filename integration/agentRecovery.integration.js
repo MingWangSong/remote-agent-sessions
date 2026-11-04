@@ -32,11 +32,11 @@ if(type==='codex'&&args[0]==='app-server'){
  console.log(JSON.stringify({id:m.id,result}));});
 }else{
  let id,name,mode;
- if(type==='claude'){const fresh=args.includes('--session-id');id=args[args.indexOf(fresh?'--session-id':'--resume')+1];name=args[args.indexOf('--name')+1];mode=fresh?'new':'resume';
+ if(type==='claude'){const fresh=args.includes('--session-id');id=args[args.indexOf(fresh?'--session-id':'--resume')+1];if(id.endsWith('.jsonl'))id=path.basename(id,'.jsonl');name=args[args.indexOf('--name')+1];mode=fresh?'new':'resume';
  const dir=path.join(process.env.CLAUDE_CONFIG_DIR,'projects','fixture');fs.mkdirSync(dir,{recursive:true});const transcript=path.join(dir,id+'.jsonl');
  if(!fresh&&!fs.existsSync(transcript))throw Error('missing original history');fs.writeFileSync(transcript,JSON.stringify({sessionId:id,name}));
- }else{id=args[1];const d=load();if(!d[id]||d[id].archived)throw Error('missing original thread');name=d[id].name;mode='resume';}
- fs.appendFileSync(path.join(root,'launches.jsonl'),JSON.stringify({type,id,name,mode})+'\\n');console.log('FIXTURE_AGENT_READY');setInterval(()=>{},1000);
+ }else{id=args[1];const d=load();if(!d[id]||d[id].archived)throw Error('missing original thread');name=d[id].name;mode='resume';if(!args.includes('--cd'))process.chdir(d[id].cwd);}
+ fs.appendFileSync(path.join(root,'launches.jsonl'),JSON.stringify({type,id,name,mode,cwd:args.includes('--cd')?args[args.indexOf('--cd')+1]:process.cwd()})+'\\n');console.log('FIXTURE_AGENT_READY');setInterval(()=>{const p=path.join(root,'next-cwd');if(fs.existsSync(p)){process.chdir(fs.readFileSync(p,'utf8'));fs.writeFileSync(path.join(root,'cwd-ready'),process.cwd());}},50);
 }
 `;
 
@@ -144,4 +144,45 @@ for (const archived of [false, true]) test(`legacy Codex history discovery and e
   const after = JSON.parse(await fs.readFile(path.join(f.dir, 'threads.json'), 'utf8'));
   assert.equal(Object.keys(after).length, 1, 'no replacement conversation created');
   assert.equal(after[original.agent.sessionId].archived, false);
+});
+
+for (const type of ['claude', 'codex']) test(`Delete → reload → Restore: ${type} keeps tmux name, last directory and exact original conversation`, async t => {
+  const f = await fixture(t); const manager = f.manager();
+  const initialDirectory = path.join(f.dir, "initial-project"); await fs.mkdir(initialDirectory);
+  const record = await manager.create({ title: "恢复 ' 中文", cwd: initialDirectory, agent: { type }, command: type });
+  const initial = (await f.waitLaunches(1))[0];
+  const keeper = await f.tmux.create('keeper', f.dir); // Keep the socket alive to distinguish new tmux IDs.
+  const firstLive = (await f.tmux.list()).find(s => s.name === record.tmuxSession);
+  const lastPath = path.join(f.dir, "last directory ' 中文"); await fs.mkdir(lastPath);
+  const last = await fs.realpath(lastPath);
+  await fs.writeFile(path.join(f.dir, 'next-cwd'), last);
+  for (let i = 0; i < 100; i++) {
+    if ((await fs.readFile(path.join(f.dir, 'cwd-ready'), 'utf8').catch(() => '')) === last) break;
+    await pause(50);
+  }
+  assert.equal(await fs.readFile(path.join(f.dir, 'cwd-ready'), 'utf8'), last);
+  const beforeDelete = (await f.tmux.list()).find(s => s.name === record.tmuxSession);
+  assert.equal(beforeDelete.snapshotWindows[0].panes[0].cwd, await fs.realpath(last));
+  // No background refresh: Delete itself must capture the final directory.
+  await manager.deleteSession(record);
+  assert.equal(await f.tmux.exists(record.tmuxSession), false);
+  let saved = (await f.store.load())[0];
+  assert.equal(saved.cwd, await fs.realpath(last));
+  assert.equal(saved.agent.sessionId, initial.id);
+  assert.equal(saved.stopCheckpoint.version, 1);
+  await fs.rm(path.join(f.dir, 'next-cwd'));
+  await fs.rm(initialDirectory, { recursive: true }); // The original directory is no longer needed.
+  const reloaded = f.manager(); await reloaded.initialize();
+  assert.equal(reloaded.entries.find(e => e.record?.id === record.id).status, 'recoverable');
+  await reloaded.restore(saved, true);
+  const restored = (await f.waitLaunches(2))[1];
+  const newLive = (await f.tmux.list()).find(s => s.name === record.tmuxSession);
+  assert.equal(newLive.name, firstLive.name); assert.notEqual(newLive.id, firstLive.id);
+  assert.equal(restored.id, initial.id); assert.equal(restored.name, initial.name);
+  assert.equal(restored.mode, 'resume'); assert.equal(restored.cwd, await fs.realpath(last));
+  saved = (await f.store.load())[0]; assert.equal(saved.stopCheckpoint, undefined);
+  await reloaded.deleteSession(saved); await reloaded.restore(saved, true);
+  assert.equal((await f.waitLaunches(3))[2].id, initial.id);
+  if (type === 'codex') assert.equal(Object.keys(JSON.parse(await fs.readFile(path.join(f.dir, 'threads.json')))).length, 1);
+  assert.ok(keeper);
 });

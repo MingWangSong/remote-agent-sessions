@@ -338,7 +338,7 @@ exports.run = async function () {
     assert.match(text, /Local metadata/);
   });
 
-  await check('Saved and pre-existing sessions can be renamed and permanently deleted', async () => {
+  await check('Delete retains recovery and Forget removes saved records', async () => {
     const lifecycle = await controller.manager.create({ title: 'Lifecycle', cwd: directory, host: host.id });
     let entry = controller.manager.entries.find((item) => item.record?.id === lifecycle.id);
     await controller.manager.renameSession(entry, 'Lifecycle renamed', 'vscode-lifecycle-renamed');
@@ -347,7 +347,11 @@ exports.run = async function () {
     entry = controller.manager.entries.find((item) => item.record?.id === lifecycle.id);
     await controller.manager.deleteSession(entry);
     assert.equal(await controller.tmux.exists('vscode-lifecycle-renamed'), false);
-    assert.equal((await controller.manager.store.load()).some((item) => item.id === lifecycle.id), false);
+    assert.equal((await controller.manager.store.load()).some((item) => item.id === lifecycle.id), true);
+    await controller.manager.restore(lifecycle, false);
+    assert.equal(await controller.tmux.exists('vscode-lifecycle-renamed'), true);
+    await controller.manager.deleteSession(lifecycle);
+    await controller.manager.forget(lifecycle);
 
     await controller.tmux.create('vscode-unmanaged', directory);
     await controller.manager.refresh();

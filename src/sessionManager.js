@@ -1,6 +1,7 @@
 'use strict';
 
 const fs = require('node:fs/promises');
+const { randomUUID } = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { createRecord, event, mergeSessions, uniqueLiteralTmuxName } = require('./model');
@@ -172,6 +173,7 @@ class SessionManager {
         }] });
       if (builtinAgent(input.agent?.type)) record.agent = { type: input.agent.type, recoveryVersion: 1, launchState: 'pending' };
       record.identityVersion = 1;
+      record.recoveryVersion = 1;
       records.push(record);
       return structuredClone(record);
     });
@@ -227,7 +229,7 @@ class SessionManager {
           for (const p of w.panes?.length ? w.panes : [w]) {
             if (executeCommands && p.agent && p.agent.launchState !== 'new') {
               if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
-              await this.agents.verify(p.agent);
+              p.agent = await this.agents.verify(p.agent);
             }
           }
         }
@@ -249,7 +251,7 @@ class SessionManager {
           for (const [pi, p] of panes.entries()) {
             const pane = pi === 0 ? firstPane : await this.tmux.split(firstPane, p.cwd || w.cwd || record.cwd);
             if (p.command && executeCommands) {
-              const command = p.agent ? agentCommand(p.agent, p.agent.launchState === 'new') : p.command;
+              const command = p.agent ? agentCommand(p.agent, p.agent.launchState === 'new', p.cwd || w.cwd || record.cwd) : p.command;
               plan.push({ session: record.tmuxSession, pane, command });
               if (p.agent) {
                 p.agent.launchState = 'started';
@@ -267,6 +269,8 @@ class SessionManager {
         if (activePane) await this.tmux.select(activePane);
         record.windows = preserveCommands(initialSnapshot || await this.tmux.listWindows(record.tmuxSession), windows, true);
         record.snapshotAt = new Date().toISOString();
+        delete record.stopCheckpoint;
+        delete record.stoppedAt;
         touch(record, 'restored', executeCommands ? 'Workspace rebuilt; configured commands requested' : 'Workspace rebuilt with shells only');
         return plan;
       });
@@ -317,19 +321,65 @@ class SessionManager {
     await this.saveAgentBinding(input, binding);
     await this.reloadRecords();
   }
-  async terminate(input) {
-    await this.store.transaction(async (records) => {
-      const record = records.find((r) => r.id === (input.record?.id || input.id));
+  async terminate(input) { return this.stopWithRecovery(input, 'terminated'); }
+
+  async stopWithRecovery(input, eventType) {
+    // Commit the final snapshot BEFORE destroying any remote process. A failed
+    // save leaves the workspace alive; a failed kill leaves a durable retry point.
+    const checkpoint = await this.store.transaction(async records => {
+      let record = records.find(r => r.id === (input.record?.id || input.id));
       const sessions = await this.tmux.list();
       const live = record
-        ? sessions.find((session) => session.owner === record.id) || sessions.find((session) => session.name === record.tmuxSession)
-        : sessions.find((session) => session.name === input.tmuxSession);
-      const name = live?.name || record?.tmuxSession || input.tmuxSession;
-      if (record && live && !owns(record, live)) throw new Error('Session identity changed; refusing to terminate a different session.');
-      if (!record && live && !sameLiveIdentity(input.live, live)) throw new Error('Session identity changed; refusing to terminate a different session.');
-      if (record && live) await this.snapshotRecord(record, live.snapshotWindows);
-      if (live) await this.tmux.kill(name);
-      if (record) touch(record, 'terminated', 'tmux stopped; layout and history retained');
+        ? sessions.find(s => s.owner === record.id) || sessions.find(s => s.name === record.tmuxSession)
+        : sessions.find(s => s.name === input.tmuxSession);
+      if (record && live && !owns(record, live)) throw new Error('Session identity changed; refusing to delete a different session.');
+      if (!record && live && !sameLiveIdentity(input.live, live)) throw new Error('Session identity changed; refusing to delete a different session.');
+      if (!live) return null; // Repeated Delete retains the saved recovery record.
+      if (!record) {
+        const windows = live.snapshotWindows || await this.tmux.listWindows(live.name);
+        const cwd = windows[0]?.panes?.[0]?.cwd || windows[0]?.cwd;
+        record = createRecord({ title: live.name, tmuxSession: live.name, cwd, windows, createdAt: live.created });
+        records.push(record);
+      }
+      record.tmuxSession = live.name;
+      record.windows = preserveCommands(structuredClone(live.snapshotWindows || await this.tmux.listWindows(live.name)), record.windows);
+      record.snapshotAt = new Date().toISOString();
+      const activeWindow = record.windows.find(w => w.active) || record.windows[0];
+      record.cwd = (activeWindow?.panes?.find(p => p.active) || activeWindow?.panes?.[0])?.cwd || activeWindow?.cwd || record.cwd;
+      Object.assign(record, await this.git.inspect(record.cwd));
+      if (needsAgentBinding(record)) throw new Error('This older Agent session has no saved conversation ID. Bind the original conversation before deleting it. The running session was preserved.');
+      for (const w of record.windows) {
+        for (const p of w.panes?.length ? w.panes : [w]) {
+          if (p.agent) {
+            if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
+            p.agent = await this.agents.verify(p.agent);
+            p.agent.launchState = 'started';
+            p.command = agentCommand(p.agent, false, p.cwd || w.cwd || record.cwd);
+            if (record.agent?.sessionId === p.agent.sessionId) record.agent = structuredClone(p.agent);
+          } else if (builtinAgent(p.currentCommand)) {
+            throw new Error('This running Agent has no saved conversation ID. Bind its original conversation before deleting it. The running session was preserved.');
+          }
+        }
+        w.command = w.panes?.[0]?.command || w.command || null;
+      }
+      record.recoveryVersion = 1;
+      const token = randomUUID();
+      record.stopCheckpoint = { version: 1, token, savedAt: new Date().toISOString(), live: {
+        id: live.id, created: live.created, name: live.name, owner: live.owner
+      } };
+      touch(record, 'recovery-saved', 'Saved final directories, layout and original Agent conversation links');
+      return { recordId: record.id, token, live };
+    });
+    if (checkpoint) await this.store.transaction(async records => {
+      const record = records.find(r => r.id === checkpoint.recordId);
+      if (!record || record.stopCheckpoint?.token !== checkpoint.token) throw new Error('Recovery record changed before deletion. The running session was preserved.');
+      const live = (await this.tmux.list()).find(s => s.name === checkpoint.live.name);
+      if (live) {
+        if (!sameLiveIdentity(checkpoint.live, live) || live.owner !== checkpoint.live.owner) throw new Error('Session identity changed; refusing to delete a different session.');
+        await this.tmux.kill(live.name);
+      }
+      record.stoppedAt = new Date().toISOString();
+      touch(record, eventType, 'tmux stopped; final directory and original Agent conversations retained for Restore');
     });
     await this.refresh(false);
   }
@@ -420,21 +470,8 @@ class SessionManager {
     });
     await this.reloadRecords();
   }
-  async deleteSession(input) {
-    await this.store.transaction(async (records) => {
-      const record = records.find((r) => r.id === (input.record?.id || input.id));
-      const sessions = await this.tmux.list();
-      const live = record
-        ? sessions.find((session) => session.owner === record.id) || sessions.find((session) => session.name === record.tmuxSession)
-        : sessions.find((session) => session.name === input.tmuxSession);
-      const name = live?.name || record?.tmuxSession || input.tmuxSession;
-      if (record && live && !owns(record, live)) throw new Error('Session identity changed; refusing to delete a different session.');
-      if (!record && !sameLiveIdentity(input.live, live)) throw new Error('Session identity changed; refusing to delete a different session.');
-      if (live) await this.tmux.kill(name);
-      if (record) records.splice(records.indexOf(record), 1);
-    });
-    await this.refresh(false);
-  }
+  async deleteSession(input) { return this.stopWithRecovery(input, 'deleted'); }
+
 }
 async function checkDirectory(cwd) {
   if (typeof cwd !== 'string' || /[\x00\r\n]/.test(cwd) || !(await fs.stat(cwd).catch(() => null))?.isDirectory()) {
