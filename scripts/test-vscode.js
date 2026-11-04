@@ -58,6 +58,10 @@ exec sh -c "$1"
       '--disable-extensions','--disable-workspace-trust','--skip-welcome','--skip-release-notes'];
     if (process.env.RAS_TEST_RELOAD || process.env.RAS_TEST_ICONS) {
       executable ||= await downloadAndUnzipVSCode({ version: 'stable' });
+      // Match @vscode/test-electron's isolated test launch on Linux runners,
+      // whose downloaded chrome-sandbox is not installed setuid. These flags
+      // apply only to this temporary test application, never the user's Code.
+      if (process.platform === 'linux') launchArgs.push('--no-sandbox', '--disable-gpu-sandbox');
       // --extensionTestsPath ends the whole test application on reload. A normal
       // development driver activates again in the new extension host instead.
       const driver = path.join(temp, 'reload-driver');
