@@ -1,6 +1,6 @@
 # 从私有正式版到公开推广
 
-当前状态：公开仓库与 Marketplace 已于 2026-09-18 发布 2.1.0。Publisher 为 `mingwangsong`，扩展 ID 为 `mingwangsong.remote-agent-sessions`。2.4.1 已完成本地回归、最终 VSIX 安装和实际窗口重载验收；发布时更新同一市场条目，不创建新 publisher。
+当前状态：公开仓库与 Marketplace 已于 2026-09-18 发布 2.1.0。Publisher 为 `mingwangsong`，扩展 ID 为 `mingwangsong.remote-agent-sessions`。2.4.2 已完成本地回归、最终 VSIX 安装和实际窗口重载验收；发布时更新同一市场条目，不创建新 publisher。
 
 ## 发布前必须完成
 

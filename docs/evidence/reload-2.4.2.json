@@ -1,0 +1,12 @@
+{
+  "passed": 6,
+  "checks": [
+    "reload 1: native terminals keep their process IDs, names, order, groups and selected tab",
+    "reload 1: original sessions survive and startup commands are not repeated",
+    "reloaded same-name terminal restores host status, sidebar selection and local reuse",
+    "reload 2: native terminals keep their process IDs, names, order, groups and selected tab",
+    "reload 2: original sessions survive and startup commands are not repeated",
+    "second reload keeps the ordinary file selected and does not resurrect a closed session tab"
+  ],
+  "reloads": 2
+}
