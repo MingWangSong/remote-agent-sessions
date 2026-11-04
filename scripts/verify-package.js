@@ -12,7 +12,12 @@ const run = promisify(execFile);
   const vsix = path.resolve(root,`dist/tmuxdock-${manifest.version}.vsix`);
   await run('unzip',['-tq',vsix]);
   const files = (await run('unzip',['-Z1',vsix])).stdout.split('\n');
-  for (const file of ['package.json',manifest.icon,...(await fs.readdir(path.join(root,'src'))).map(f=>'src/'+f)]) {
+  async function tree(directory) {
+    const entries = await fs.readdir(path.join(root, directory), { withFileTypes: true });
+    return (await Promise.all(entries.map(entry => entry.isDirectory()
+      ? tree(directory + '/' + entry.name) : directory + '/' + entry.name))).flat();
+  }
+  for (const file of ['package.json', ...(await tree('media')), ...(await tree('src'))]) {
     const packed = (await run('unzip',['-p',vsix,'extension/'+file],{encoding:'buffer'})).stdout;
     assert.deepEqual(packed,await fs.readFile(path.join(root,file)),file+' differs from verified source');
   }

@@ -1,6 +1,6 @@
 'use strict';
 
-const { execFile } = require('node:child_process');
+const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
 const path = require('node:path');
 const execFileAsync = promisify(execFile);
@@ -83,6 +83,12 @@ class SshClient {
 
   terminalArgs(executable, args = []) {
     return [...this.baseArgs({ interactive: true }), '-tt', this.host.sshHost, remoteCommand(executable, args)];
+  }
+
+  openProcess(executable, args = []) {
+    return spawn(this.sshPath, [...this.baseArgs(), this.host.sshHost, remoteCommand(executable, args)], {
+      stdio: ['pipe', 'pipe', 'pipe'], env: process.env
+    });
   }
 
   async homeDirectory() {

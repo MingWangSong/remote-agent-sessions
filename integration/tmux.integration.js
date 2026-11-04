@@ -12,6 +12,7 @@ const { createRecord } = require('../src/model');
 const { SessionManager } = require('../src/sessionManager');
 const { SessionStore } = require('../src/store');
 const { TmuxClient } = require('../src/tmux');
+const { guardedAttachScript } = require('../src/terminalPersistence');
 const run = promisify(execFile);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -125,6 +126,24 @@ test('real tmux: missing directory fails before creating any restored process', 
   assert.equal((await store.load()).length, 1);
 });
 
+test('real tmux: a revived terminal refuses a changed owner or a same-name replacement', async t => {
+  const { directory, tmux, manager } = await fixture(t);
+  await tmux.create('keep-server', directory);
+  const record = await manager.create({ title: 'persisted terminal', cwd: directory });
+  const live = (await tmux.list()).find(session => session.name === record.tmuxSession);
+  const script = guardedAttachScript(tmux, live);
+  const env = { ...process.env }; delete env.TMUX;
+  await tmux.setOwner(record.tmuxSession, 'replacement-owner');
+  await assert.rejects(run('sh', ['-c', script], { env }), /original session is unavailable or its identity changed/);
+  assert.equal((await tmux.list()).find(session => session.name === record.tmuxSession).attached, 0);
+  await tmux.kill(record.tmuxSession);
+  await tmux.create(record.tmuxSession, directory);
+  await assert.rejects(run('sh', ['-c', script], { env }));
+  const replacement = (await tmux.list()).find(session => session.name === record.tmuxSession);
+  assert.notEqual(replacement.id, live.id);
+  assert.equal(replacement.attached, 0);
+});
+
 test('real tmux: mid-restore failure rolls back shells but keeps recovery data', async (t) => {
   const { directory, tmux, store, manager } = await fixture(t);
   const r = await manager.create({ title: 'rollback', cwd: directory });
@@ -138,6 +157,102 @@ test('real tmux: mid-restore failure rolls back shells but keeps recovery data',
   assert.equal((await store.load())[0].windows.length, 2);
   await manager.restore(r);
   assert.equal((await tmux.listWindows(r.tmuxSession)).length, 2);
+});
+
+test('real tmux: grouped initialization failure cleans only its new shell and preserves recovery intent', async t => {
+  const { directory, tmux, store, manager } = await fixture(t);
+  await tmux.create('unrelated', directory);
+  const before = (await tmux.list()).find(session => session.name === 'unrelated');
+  const original = tmux.runSequence.bind(tmux);
+  tmux.runSequence = async commands => {
+    if (commands[0][0] === 'set-option') {
+      await tmux.run(commands[0]);
+      throw new Error('Injected failure after owner assignment');
+    }
+    return original(commands);
+  };
+  await assert.rejects(manager.create({ title: 'grouped rollback', cwd: directory, command: 'touch must-not-run' }), /Injected failure/);
+  assert.equal(await tmux.exists('grouped rollback'), false);
+  assert.equal(await fs.stat(path.join(directory, 'must-not-run')).catch(() => null), null);
+  assert.equal((await store.load()).length, 1);
+  const after = (await tmux.list()).find(session => session.name === 'unrelated');
+  assert.equal(after.id, before.id); assert.equal(after.created, before.created);
+  tmux.runSequence = original;
+  await manager.restore((await store.load())[0], true);
+  await eventually(async () => Boolean(await fs.stat(path.join(directory, 'must-not-run')).catch(() => null)));
+});
+
+test('real tmux: single-pane optimization keeps option-hook output out of the saved layout', async t => {
+  const { directory, tmux, store, manager } = await fixture(t);
+  await tmux.create('hook-bootstrap', directory);
+  await tmux.run(['set-hook', '-g', 'after-set-option', 'display-message -p HOOK_OUTPUT']);
+  const record = await manager.create({ title: "quoted ' session", cwd: directory });
+  const saved = (await store.load()).find(item => item.id === record.id);
+  assert.equal(saved.windows.length, 1);
+  assert.equal(saved.windows[0].name, 'agent');
+  assert.equal(saved.windows[0].panes.length, 1);
+  assert.equal(saved.windows[0].panes[0].active, true);
+});
+
+test('real tmux: single-pane restore matches the original two-command selection hooks', async t => {
+  const { directory, tmux, manager } = await fixture(t);
+  await tmux.create('keep-server', directory);
+  const record = await manager.create({ title: 'selection hooks', cwd: directory });
+  const log = path.join(directory, 'hooks');
+  await tmux.run(['set-hook', '-g', 'after-select-pane', `run-shell "printf p >> '${log}'"`]);
+  await tmux.run(['set-hook', '-g', 'after-select-window', `run-shell "printf w >> '${log}'"`]);
+  await fs.writeFile(log, '');
+  const pane = record.windows[0].panes[0].id;
+  await tmux.run(['select-pane', '-t', pane]);
+  await tmux.run(['select-window', '-t', pane]);
+  await eventually(async () => (await fs.readFile(log, 'utf8')).includes('w'));
+  // Selecting an already-active pane does not fire after-select-pane on tmux.
+  // Compare with the original two requests, rather than requiring a new hook.
+  const expected = await fs.readFile(log, 'utf8');
+  await manager.terminate(record);
+  await fs.writeFile(log, '');
+  await manager.restore(record, false);
+  await eventually(async () => (await fs.readFile(log, 'utf8')) === expected);
+});
+
+test('real tmux: no startup command runs before the rebuilt layout is durably committed', async t => {
+  const { directory, tmux, store, manager } = await fixture(t);
+  const originalWrite = store.write.bind(store); let writes = 0;
+  store.write = async records => {
+    writes++;
+    if (writes === 2) throw new Error('Injected durable commit failure');
+    return originalWrite(records);
+  };
+  await assert.rejects(manager.create({ title: 'durability', cwd: directory, command: 'printf x >> counter' }), /durable commit failure/);
+  assert.equal(await tmux.exists('durability'), false);
+  assert.equal(await fs.stat(path.join(directory, 'counter')).catch(() => null), null);
+  const record = (await store.load())[0];
+  store.write = originalWrite;
+  await manager.restore(record, true);
+  await eventually(async () => (await fs.readFile(path.join(directory, 'counter'), 'utf8').catch(() => '')) === 'x');
+});
+
+test('real tmux: restored pane geometry, directories and active selection match the saved workspace', async t => {
+  const { directory, tmux, manager } = await fixture(t);
+  const subdir = path.join(directory, "子目录 with 'quotes'"); await fs.mkdir(subdir);
+  const record = await manager.create({ title: 'geometry', cwd: directory });
+  let windows = await tmux.listWindows(record.tmuxSession);
+  const first = windows[0].panes[0].id;
+  const second = await tmux.split(first, subdir);
+  await tmux.createWindow(record.tmuxSession, { name: 'second', cwd: subdir });
+  await tmux.select(second);
+  const shape = async () => (await tmux.run(['list-panes', '-s', '-t', '=' + record.tmuxSession, '-F', [
+    '#{window_name}', '#{window_active}', '#{pane_active}', '#{pane_current_path}',
+    '#{pane_left}', '#{pane_top}', '#{pane_width}', '#{pane_height}'
+  ].join(tmux.separator)])).trim();
+  const before = await shape();
+  await manager.terminate(record);
+  const originalCheck = manager.directoryChecker; const checked = [];
+  manager.directoryChecker = async cwd => { checked.push(cwd); return originalCheck(cwd); };
+  await manager.restore(record, false);
+  assert.equal(new Set(checked).size, 2);
+  assert.equal(checked.length, 2, 'each distinct directory must be checked before creating any panes');
+  assert.equal(await shape(), before);
 });
 
 test('real tmux: adopted base-index=1 sessions preserve panes, and forget leaves processes running', async (t) => {

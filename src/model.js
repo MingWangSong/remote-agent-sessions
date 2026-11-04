@@ -91,7 +91,7 @@ function mergeSessions(records, liveSessions) {
 
   for (const live of liveByName.values()) {
     result.push({
-      id: `tmux:${live.name}`,
+      id: live.id ? `tmux:${live.id}:${live.created || ''}` : `tmux:${live.name}`,
       record: null,
       live,
       managed: false,
@@ -102,12 +102,7 @@ function mergeSessions(records, liveSessions) {
     });
   }
 
-  return result.sort((a, b) => {
-    if (a.status !== b.status) return a.status === 'live' ? -1 : 1;
-    const aTime = a.live?.activity || a.record?.updatedAt || '';
-    const bTime = b.live?.activity || b.record?.updatedAt || '';
-    return String(bTime).localeCompare(String(aTime));
-  });
+  return result.sort(require('./sessionOrder').byCreation);
 }
 
 function basenameForTitle(cwd) {

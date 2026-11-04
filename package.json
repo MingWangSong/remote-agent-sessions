@@ -2,9 +2,12 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Dock and manage persistent tmux sessions across SSH hosts from one local VS Code.",
-  "version": "2.1.0",
+  "version": "2.4.0",
   "icon": "media/icon.png",
-  "repository": { "type": "git", "url": "https://github.com/MingWangSong/remote-agent-sessions.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MingWangSong/remote-agent-sessions.git"
+  },
   "publisher": "mingwangsong",
   "license": "MIT",
   "engines": {
@@ -46,14 +49,16 @@
     "onStartupFinished"
   ],
   "scripts": {
-    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js",
+    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js && node --check src/sessionOrder.js && node --check src/operations.js && node --check src/sessionType.js && node --check src/terminalTitle.js && node --check src/agentSessions.js && node --check src/terminalPersistence.js && node --check scripts/test-vscode.js",
     "test": "node --test test/*.test.js",
     "verify": "npm run check && npm test",
     "test:integration": "node --test --test-concurrency=1 integration/tmux.integration.js",
     "test:ssh": "node --test --test-concurrency=1 integration/ssh.integration.js",
     "test:vscode": "node scripts/test-vscode.js",
     "package": "node scripts/package.js",
-    "verify:package": "node scripts/verify-package.js"
+    "verify:package": "node scripts/verify-package.js",
+    "test:agent-recovery": "node --test --test-concurrency=1 integration/agentRecovery.integration.js",
+    "test:reload": "RAS_TEST_RELOAD=1 node scripts/test-vscode.js"
   },
   "contributes": {
     "commands": [
@@ -176,6 +181,18 @@
         "title": "Export Session Backup",
         "icon": "$(export)",
         "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.resetOrder",
+        "title": "Reset Session Order (Creation Time)",
+        "icon": "$(list-ordered)",
+        "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.bindAgentSession",
+        "title": "Bind Original Agent Conversation",
+        "category": "TmuxDock",
+        "icon": "$(link)"
       }
     ],
     "viewsContainers": {
@@ -304,6 +321,16 @@
           "command": "remoteAgentSessions.editCommand",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable|Unavailable)/",
           "group": "navigation@5"
+        },
+        {
+          "command": "remoteAgentSessions.resetOrder",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
+          "group": "host@5"
+        },
+        {
+          "command": "remoteAgentSessions.bindAgentSession",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable)/",
+          "group": "navigation@6"
         }
       ]
     },
@@ -384,6 +411,8 @@
       "supported": true,
       "description": "Host records and transport settings are machine-scoped and are not read from workspace files."
     },
-    "virtualWorkspaces": { "supported": true }
+    "virtualWorkspaces": {
+      "supported": true
+    }
   }
 }

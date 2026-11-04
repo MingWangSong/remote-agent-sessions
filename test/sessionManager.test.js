@@ -83,3 +83,72 @@ test('manager renames and permanently deletes saved and pre-existing sessions sa
   await manager.deleteSession(manager.entries[0]);
   assert.equal(live.length,0);
 });
+
+test('background snapshot does not hold database lock or block a fast refresh, and preserves foreground edits', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ras-snapshot-race-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new SessionStore(path.join(dir, 'sessions.json'));
+  const record = createRecord({ id: 'record', tmuxSession: 'task', cwd: dir,
+    windows: [{ name: 'agent', panes: [{ id: '%1', cwd: dir, command: 'old' }] }] });
+  record.identityVersion = 1;
+  await store.save([record]);
+  let release, entered;
+  const started = new Promise(resolve => { entered = resolve; });
+  const gate = new Promise(resolve => { release = resolve; });
+  const manager = new SessionManager(store, {
+    list: async () => [{ name: 'task', owner: 'record', id: '$1' }],
+    listWindows: async () => { entered(); await gate; return [{ name: 'agent', panes: [{ id: '%1', cwd: dir }] }]; }
+  }, { inspect: async () => ({ repoRoot: null, gitBranch: null }) });
+  const background = manager.refresh();
+  await started;
+  try {
+    await Promise.race([
+      manager.setCommand(record, 0, 0, 'new'),
+      new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('snapshot blocked command')), 2000); timer.unref(); })
+    ]);
+    await manager.setNote(record, 'foreground note');
+  } finally { release(); }
+  await background;
+  const saved = (await store.load())[0];
+  assert.equal(saved.note, 'foreground note');
+  assert.equal(saved.windows[0].panes[0].command, 'new');
+  assert.equal(manager.entries[0].status, 'live');
+});
+
+test('notes, attach bookkeeping and forgetting are local and preserve the last observed live state', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ras-local-edit-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new SessionStore(path.join(dir, 'sessions.json'));
+  const record = createRecord({ id: 'local', tmuxSession: 'task', cwd: dir });
+  record.identityVersion = 1; await store.save([record]);
+  let calls = 0, offline = false;
+  const manager = new SessionManager(store, { list: async () => {
+    calls++; if (offline) throw new Error('offline');
+    return [{ name: 'task', owner: 'local', id: '$1' }];
+  } });
+  await manager.refresh(false); const before = calls;
+  await manager.setNote(record, 'fast note'); await manager.markAttached(record);
+  assert.equal(calls, before);
+  assert.equal(manager.entries[0].status, 'live');
+  assert.equal(manager.entries[0].record.note, 'fast note');
+  offline = true; await assert.rejects(manager.refresh(false), /offline/);
+  const failedCalls = calls; await manager.setNote(record, 'offline edit');
+  assert.equal(calls, failedCalls);
+  assert.equal(manager.entries[0].status, 'unavailable');
+});
+
+test('one inventory snapshot and one Git query serve multiple sessions in the same directory', async t => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ras-bulk-snapshot-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const store = new SessionStore(path.join(dir, 'sessions.json'));
+  const records = [1, 2, 3].map(i => ({ ...createRecord({ id: 'r' + i, tmuxSession: 'task-' + i, cwd: dir }), identityVersion: 1 }));
+  await store.save(records); let gitCalls = 0, inventoryCalls = 0;
+  const manager = new SessionManager(store, {
+    list: async () => { inventoryCalls++; return records.map((record, i) => ({ name: record.tmuxSession, owner: record.id,
+      snapshotWindows: [{ id: '@' + i, name: 'agent', cwd: dir, panes: [{ id: '%' + i, cwd: dir }] }] })); },
+    listWindows: async () => { throw new Error('must use the already captured window data'); }
+  }, { inspect: async () => { gitCalls++; return { gitBranch: 'shared' }; } });
+  await manager.refresh();
+  assert.equal(inventoryCalls, 1); assert.equal(gitCalls, 1);
+  assert.equal(manager.records.filter(record => record.windows.length === 1 && record.gitBranch === 'shared').length, 3);
+});

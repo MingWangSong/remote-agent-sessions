@@ -1,0 +1,16 @@
+TmuxDock 2.4.0 acceptance evidence (2026-11-04)
+
+Unit and persistence: 58/58
+Isolated real tmux and Git: 18/18
+Agent recovery using isolated CLI fixtures, no paid model turns: 4/4
+Isolated real SSH lifecycle: 1/1
+Source VS Code Extension Host: 15/15
+Final VSIX Extension Host: 15/15
+Source and final VSIX actual Reload Window: 6/6 each, two reloads per run
+Final VSIX runtime source, media and dependencies: byte equality PASS
+Official publisher: mingwangsong
+Official VSIX SHA-256: 5323c351695a70d59f17f8d0f6128800431b7575e033dda8a1e4e32c31cfd5a0
+
+Existing remote sessions and local session records were not modified.
+Tests do not establish compatibility with every OS, authentication method or CLI version.
+See TEST-REPORT.md for measurements and validation boundaries.

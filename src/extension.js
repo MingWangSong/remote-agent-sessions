@@ -10,8 +10,61 @@ const { GitInspector, SessionManager, checkTmuxName, owns } = require('./session
 const { SessionStore, validateRecords } = require('./store');
 const { SshClient } = require('./ssh');
 const { TmuxClient } = require('./tmux');
+const { SessionOrder, sessionKey } = require('./sessionOrder');
+const { Operations } = require('./operations');
+const { sessionType, TYPE_ICONS, TYPE_LABELS } = require('./sessionType');
+const { terminalTitle, bannerText } = require('./terminalTitle');
+const { AgentSessions, builtinAgent, needsAgentBinding, UUID } = require('./agentSessions');
+const { TERMINAL_CONTEXT, TerminalConnections, terminalMetadata, guardedAttachScript } = require('./terminalPersistence');
 
 const terminals = new Map();
+const terminalContexts = new Map();
+let terminalStatus;
+let syncTreeSelection = () => {};
+let statusSyncTimer;
+let terminalConnections;
+let reconnectTerminal = async () => {};
+
+function sessionIconPath(entry) {
+  const icon = TYPE_ICONS[sessionType(entry)];
+  return typeof icon === 'string'
+    ? new vscode.ThemeIcon(icon, new vscode.ThemeColor(entry.status === 'live' ? 'testing.iconPassed' : 'disabledForeground'))
+    : {
+      light: vscode.Uri.file(path.join(__dirname, '..', 'media', icon.light)),
+      dark: vscode.Uri.file(path.join(__dirname, '..', 'media', icon.dark))
+    };
+}
+
+function updateTerminalStatus(terminal = vscode.window.activeTerminal) {
+  if (!terminalStatus) return;
+  const context = terminalContexts.get(terminal);
+  if (!context) { terminalStatus.text = ''; terminalStatus.hide(); return; }
+  const { controller, entry } = context;
+  terminalStatus.text = `$(remote) ${controller.host.label}`;
+  terminalStatus.tooltip = buildTooltip(controller, entry);
+  terminalStatus.command = { command: 'remoteAgentSessions.showDetails', title: 'Show Session Details',
+    arguments: [new SessionTreeItem(controller, entry)] };
+  terminalStatus.show();
+  syncTreeSelection(context);
+}
+
+function syncEditorTerminalStatus() {
+  const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+  if (!(tab?.input instanceof vscode.TabInputTerminal)) {
+    if (terminalStatus) { terminalStatus.text = ''; terminalStatus.hide(); }
+    return;
+  }
+  // Editor tab activation can precede onDidChangeActiveTerminal. The compact
+  // names are unique across open terminals, so use the actual selected tab.
+  const matches = vscode.window.terminals.filter(terminal => terminal.name === tab.label);
+  if (matches.length === 1) updateTerminalStatus(matches[0]);
+  else if (terminalStatus) { terminalStatus.text = ''; terminalStatus.hide(); }
+}
+
+function scheduleEditorTerminalStatus() {
+  clearTimeout(statusSyncTimer);
+  statusSyncTimer = setTimeout(syncEditorTerminalStatus, 0);
+}
 
 class HostController {
   constructor(host, context, configuration) {
@@ -30,20 +83,22 @@ class HostController {
       new SessionStore(this.databasePath),
       this.tmux,
       new GitInspector(this.ssh.run.bind(this.ssh)),
-      this.ssh.checkDirectory.bind(this.ssh)
+      this.ssh.checkDirectory.bind(this.ssh),
+      new AgentSessions(this.ssh)
     );
     this.online = false;
     this.error = null;
+    this.activity = '';
+    this.sessionActivity = new Map();
   }
 
   async refresh(snapshot = true) {
+    const generation = this.refreshGeneration = (this.refreshGeneration || 0) + 1;
     try {
       await this.manager.refresh(snapshot);
-      this.online = true;
-      this.error = null;
+      if (generation === this.refreshGeneration) { this.online = true; this.error = null; }
     } catch (error) {
-      this.online = false;
-      this.error = error;
+      if (generation === this.refreshGeneration) { this.online = false; this.error = error; }
     }
     return this.manager.entries;
   }
@@ -57,12 +112,12 @@ class HostTreeItem extends vscode.TreeItem {
     this.id = `host:${controller.host.id}`;
     this.contextValue = controller.online ? 'sshHostOnline' : 'sshHostOffline';
     this.iconPath = new vscode.ThemeIcon(
-      controller.online ? 'remote' : 'debug-disconnect',
+      controller.activity ? 'loading~spin' : controller.online ? 'remote' : 'debug-disconnect',
       new vscode.ThemeColor(controller.online ? 'testing.iconPassed' : 'notificationsErrorIcon.foreground')
     );
     const live = controller.manager.entries.filter((entry) => entry.status === 'live').length;
     const recoverable = controller.manager.entries.filter((entry) => entry.status === 'recoverable').length;
-    this.description = controller.online ? `${live} live${recoverable ? ` · ${recoverable} recoverable` : ''}` : 'offline';
+    this.description = controller.activity || (controller.online ? `${live} live${recoverable ? ` · ${recoverable} recoverable` : ''}` : 'offline');
     this.tooltip = controller.online
       ? `${controller.host.sshHost} · connected through local SSH`
       : `${controller.host.sshHost}\n${humanError(controller.error)}`;
@@ -78,18 +133,21 @@ class SessionTreeItem extends vscode.TreeItem {
     this.id = `${controller.host.id}:${entry.id}`;
     this.description = buildDescription(entry);
     this.tooltip = buildTooltip(controller, entry);
+    this.iconPath = sessionIconPath(entry);
     if (entry.status === 'live') {
-      this.iconPath = new vscode.ThemeIcon('terminal', new vscode.ThemeColor('testing.iconPassed'));
       this.contextValue = entry.managed ? 'sessionLiveManaged' : 'sessionLiveUnmanaged';
       this.command = { command: 'remoteAgentSessions.attach', title: 'Attach Session', arguments: [this] };
     } else if (entry.status === 'recoverable') {
-      this.iconPath = new vscode.ThemeIcon('debug-restart', new vscode.ThemeColor('notificationsWarningIcon.foreground'));
       this.contextValue = 'sessionRecoverable';
       this.command = { command: 'remoteAgentSessions.restore', title: 'Restore Session', arguments: [this] };
     } else {
-      this.iconPath = new vscode.ThemeIcon('warning');
       this.contextValue = 'sessionUnavailable';
       this.description = entry.status === 'conflict' ? 'name belongs to another session' : 'host unavailable';
+    }
+    const activity = controller.sessionActivity.get(entry.id);
+    if (activity) {
+      this.iconPath = new vscode.ThemeIcon('loading~spin');
+      this.description = activity.label;
     }
   }
 }
@@ -103,6 +161,25 @@ class MessageTreeItem extends vscode.TreeItem {
   }
 }
 
+function sessionGroup(entry) {
+  return entry.status === 'live' ? 'running' : entry.status === 'recoverable' ? 'stopped' : 'unknown';
+}
+
+class SessionGroupTreeItem extends vscode.TreeItem {
+  constructor(controller, group, count) {
+    const labels = { running: 'Running', stopped: 'Stopped / Recoverable', unknown: 'Status unavailable' };
+    super(labels[group], group === 'stopped' ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.Expanded);
+    this.kind = 'sessionGroup';
+    this.controller = controller;
+    this.group = group;
+    this.id = `group:${controller.host.id}:${group}`;
+    this.contextValue = 'statusGroup';
+    this.description = String(count);
+    this.iconPath = new vscode.ThemeIcon(group === 'running' ? 'play-circle' : group === 'stopped' ? 'history' : 'warning');
+    this.tooltip = group === 'unknown' ? 'The host is unavailable or the session identity changed; these sessions are not confirmed stopped.' : labels[group];
+  }
+}
+
 class MultiHostTreeProvider {
   constructor(context, registry, configuration, onCountChanged) {
     this.context = context;
@@ -110,26 +187,69 @@ class MultiHostTreeProvider {
     this.configuration = configuration;
     this.onCountChanged = onCountChanged;
     this.controllers = [];
+    this.order = new SessionOrder(context.globalState);
+    this.dragMimeTypes = ['application/vnd.code.tree.remoteagentsessions.sessions'];
+    this.dropMimeTypes = [...this.dragMimeTypes];
     this.changeEmitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.changeEmitter.event;
   }
 
   getTreeItem(item) { return item; }
 
+  getParent(item) {
+    if (item.kind === 'session') return new SessionGroupTreeItem(item.controller, sessionGroup(item.entry),
+      item.controller.manager.entries.filter(entry => sessionGroup(entry) === sessionGroup(item.entry)).length);
+    if (item.kind === 'sessionGroup') return new HostTreeItem(item.controller);
+    return undefined;
+  }
+
   getChildren(item) {
     if (!item) return this.controllers.map((controller) => new HostTreeItem(controller));
+    if (item.kind === 'sessionGroup') {
+      return this.order.sort(item.controller.host.id, item.controller.manager.entries
+        .filter(entry => sessionGroup(entry) === item.group)).map(entry => new SessionTreeItem(item.controller, entry));
+    }
     if (item.kind !== 'host') return [];
     const controller = item.controller;
     if (!controller.online && !controller.manager.entries.length) {
       return [new MessageTreeItem(controller, 'Host unavailable — refresh or open SSH terminal', 'debug-disconnect')];
     }
     if (!controller.manager.entries.length) return [new MessageTreeItem(controller, 'No tmux sessions found')];
-    return controller.manager.entries.map((entry) => new SessionTreeItem(controller, entry));
+    return ['running', 'stopped', 'unknown'].flatMap(group => {
+      const count = controller.manager.entries.filter(entry => sessionGroup(entry) === group).length;
+      return count ? [new SessionGroupTreeItem(controller, group, count)] : [];
+    });
+  }
+
+  handleDrag(items, transfer) {
+    const sessions = items.filter(item => item.kind === 'session');
+    if (!sessions.length || sessions.some(item => item.controller !== sessions[0].controller || sessionGroup(item.entry) !== sessionGroup(sessions[0].entry))) return;
+    transfer.set(this.dragMimeTypes[0], new vscode.DataTransferItem({
+      hostId: sessions[0].controller.host.id, group: sessionGroup(sessions[0].entry), keys: sessions.map(item => sessionKey(item.entry))
+    }));
+  }
+
+  async handleDrop(target, transfer) {
+    const data = transfer.get(this.dragMimeTypes[0])?.value;
+    if (!data || !target?.controller || data.hostId !== target.controller.host.id || !Array.isArray(data.keys)) return;
+    const group = target.kind === 'session' ? sessionGroup(target.entry) : target.kind === 'sessionGroup' ? target.group : data.group;
+    if (group !== data.group) return;
+    const entries = target.controller.manager.entries.filter(entry => sessionGroup(entry) === group);
+    if (!data.keys.every(key => entries.some(entry => sessionKey(entry) === key))) return;
+    await this.order.move(data.hostId, entries, data.keys,
+      target.kind === 'session' ? sessionKey(target.entry) : null);
+    this.changeEmitter.fire(undefined);
+  }
+
+  changed() {
+    this.onCountChanged(this.controllers);
+    this.changeEmitter.fire(undefined);
   }
 
   async reloadHosts() {
     this.controllers = this.registry.list().map((host) => new HostController(host, this.context, this.configuration));
-    await this.refresh();
+    this.changed();
+    await this.refresh(undefined, false);
   }
 
   async refresh(controller, snapshot = true) {
@@ -143,12 +263,19 @@ class MultiHostTreeProvider {
 }
 
 async function activate(context) {
+  terminalConnections = new TerminalConnections(context.workspaceState);
   const configuration = vscode.workspace.getConfiguration('remoteAgentSessions');
   const registry = new HostRegistry(context.globalState);
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   status.name = 'TmuxDock';
   status.command = 'remoteAgentSessions.refresh';
   status.show();
+  terminalStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
+  terminalStatus.name = 'TmuxDock Active Session Host';
+  context.subscriptions.push(terminalStatus, vscode.window.onDidChangeActiveTerminal(updateTerminalStatus),
+    vscode.window.tabGroups.onDidChangeTabs(scheduleEditorTerminalStatus),
+    vscode.window.tabGroups.onDidChangeTabGroups(scheduleEditorTerminalStatus),
+    { dispose: () => { clearTimeout(statusSyncTimer); syncTreeSelection = () => {}; terminalStatus = undefined; terminalContexts.clear(); terminals.clear(); } });
 
   const updateStatus = (controllers) => {
     const online = controllers.filter((controller) => controller.online).length;
@@ -159,16 +286,101 @@ async function activate(context) {
   };
 
   const provider = new MultiHostTreeProvider(context, registry, configuration, updateStatus);
-  context.subscriptions.push(status, provider, vscode.window.registerTreeDataProvider('remoteAgentSessions.sessions', provider));
+  const reconnecting = new Map();
+  let controllersReady = false;
+  reconnectTerminal = terminal => {
+    if (reconnecting.has(terminal)) return reconnecting.get(terminal);
+    const pending = (async () => {
+      if (!controllersReady || terminalContexts.has(terminal)) return;
+      const restored = await terminalConnections.restore(terminal, provider.controllers);
+      if (!restored || terminal.exitStatus !== undefined || !vscode.window.terminals.includes(terminal)) return;
+      const key = `${restored.controller.host.id}:${restored.entry.id}`;
+      if (terminals.has(key)) return;
+      terminals.set(key, terminal);
+      terminalContexts.set(terminal, restored);
+      scheduleEditorTerminalStatus();
+    })().finally(() => reconnecting.delete(terminal));
+    reconnecting.set(terminal, pending);
+    return pending;
+  };
+  context.subscriptions.push(vscode.window.onDidOpenTerminal(terminal => { reconnectTerminal(terminal).catch(() => {}); }));
+  const view = vscode.window.createTreeView('remoteAgentSessions.sessions', {
+    treeDataProvider: provider, dragAndDropController: provider, canSelectMany: true
+  });
+  syncTreeSelection = ({ controller, entry }) => {
+    if (!view.visible) return;
+    const current = provider.controllers.find(candidate => candidate.host.id === controller.host.id);
+    const selected = current?.manager.entries.find(candidate => candidate.id === entry.id);
+    if (selected) view.reveal(new SessionTreeItem(current, selected), { select: true, focus: false }).catch(() => {});
+  };
+  context.subscriptions.push(status, provider, view);
 
-  let operation = Promise.resolve();
+  const operations = new Operations();
+  const labels = { create: 'New session', attach: 'Connecting', refresh: 'Refreshing sessions', restore: 'Restoring session',
+    rename: 'Renaming session', delete: 'Deleting session', terminate: 'Stopping session', adopt: 'Saving recovery snapshot' };
   const command = (name, handler) => {
-    context.subscriptions.push(vscode.commands.registerCommand(name, async (...args) => {
-      const task = operation.then(() => handler(...args));
-      operation = task.catch((error) => vscode.window.showErrorMessage(humanError(error)));
-      return operation;
+    context.subscriptions.push(vscode.commands.registerCommand(name, (...args) => {
+      const item = args[0];
+      const controller = item?.controller || (provider.controllers.length === 1 ? provider.controllers[0] : null);
+      const hostId = controller?.host.id || 'all-hosts';
+      if (name === 'remoteAgentSessions.attach' && item?.kind === 'session') {
+        const existing = terminals.get(`${hostId}:${item.entry.id}`);
+        if (existing && existing.exitStatus === undefined) {
+          // Focusing an already-open terminal is entirely local and must not sit
+          // behind a slow refresh or Agent initialization on the same host.
+          return attachEntry(controller, item.entry).catch(error => vscode.window.showErrorMessage(humanError(error)));
+        }
+      }
+      const key = `${name}:${hostId}:${item?.entry?.id || ''}`;
+      if (operations.pending.has(key)) return operations.pending.get(key);
+      const activityToken = Symbol(key);
+      const label = labels[name.split('.').pop()] || 'TmuxDock';
+      return vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+        title: `${label}${controller ? ` · ${controller.host.label}` : ''}`, cancellable: false
+      }, progress => {
+        let stage = operations.isBusy(hostId) ? 'Waiting for the previous action on this host' : 'Starting';
+        const started = Date.now();
+        const report = message => { stage = message; progress.report({ message }); };
+        report(stage);
+        const timer = setInterval(() => {
+          const seconds = Math.floor((Date.now() - started) / 1000);
+          progress.report({ message: `${stage} · ${seconds}s${seconds >= 5 ? ' · In progress; other hosts remain available' : ''}` });
+        }, 1000);
+        return operations.run(hostId, key, () => handler(item, report), () => {
+          report('Working');
+          if (controller) {
+            controller.activity = label;
+            controller.activityToken = activityToken;
+            if (item?.entry) controller.sessionActivity.set(item.entry.id, { label, token: activityToken });
+            provider.changed();
+          }
+        }).catch(error => { vscode.window.showErrorMessage(humanError(error)); }).finally(() => {
+          clearInterval(timer);
+          if (controller) {
+            if (controller.activityToken === activityToken) controller.activity = '';
+            if (item?.entry && controller.sessionActivity.get(item.entry.id)?.token === activityToken) {
+              controller.sessionActivity.delete(item.entry.id);
+            }
+            provider.changed();
+          }
+        });
+      });
     }));
   };
+
+  command('remoteAgentSessions.resetOrder', async item => {
+    const controller = await resolveHost(item, provider);
+    if (!controller) return;
+    await provider.order.reset(controller.host.id);
+    provider.changed();
+  });
+
+  command('remoteAgentSessions.bindAgentSession', async item => {
+    const resolved = await resolveSession(item, provider, entry => entry.managed);
+    if (!resolved) return;
+    await bindOriginalConversation(resolved.controller, resolved.entry.record);
+    provider.changed();
+  });
 
   command('remoteAgentSessions.addHost', async () => {
     const sshHost = await vscode.window.showInputBox({
@@ -253,7 +465,13 @@ async function activate(context) {
     await provider.reloadHosts();
   });
 
-  command('remoteAgentSessions.refresh', async (item) => provider.refresh(item?.kind === 'host' ? item.controller : undefined));
+  command('remoteAgentSessions.refresh', async (item, report) => {
+    report('Querying remote sessions and saving recovery snapshots');
+    await provider.refresh(item?.kind === 'host' ? item.controller : undefined);
+    const targets = item?.kind === 'host' ? [item.controller] : provider.controllers;
+    const failed = targets.find(controller => controller.error);
+    if (failed) throw failed.error;
+  });
 
   command('remoteAgentSessions.openSshTerminal', async (item) => {
     const controller = await resolveHost(item, provider);
@@ -280,13 +498,13 @@ async function activate(context) {
     await vscode.commands.executeCommand('vscode.openFolder', uri, { forceNewWindow: true });
   });
 
-  command('remoteAgentSessions.create', async (item) => {
+  command('remoteAgentSessions.create', async (item, report) => {
     const controller = await resolveHost(item, provider);
     if (!controller) return;
-    await controller.refresh();
-    if (!controller.online) throw controller.error;
+    report('Choose the remote working directory');
     const cwd = await chooseRemoteWorkingDirectory(controller);
     if (!cwd) return;
+    report('Enter a session name');
     const title = await vscode.window.showInputBox({
       title: `Session Name on ${controller.host.label}`,
       prompt: 'One name is used in TmuxDock and for the real tmux session.',
@@ -294,30 +512,32 @@ async function activate(context) {
       validateInput: validateTmuxNameInput
     });
     if (!title) return;
+    report('Choose what to run in the session');
     const launch = await chooseAgentCommand();
     if (!launch) return;
-    const record = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Creating ${title.trim()} on ${controller.host.label}…` }, () =>
-      controller.manager.create({ title: title.trim(), cwd, command: launch.command, agent: launch.agent, host: controller.host.id })
-    );
-    await provider.refresh(controller, false);
+    report(`Creating ${title.trim()} over SSH`);
+    const record = await controller.manager.create({ title: title.trim(), cwd, command: launch.command, agent: launch.agent, host: controller.host.id });
+    provider.changed();
     if (configuration.get('attachOnCreate', true)) {
+      report('Opening the session terminal');
       const entry = controller.manager.entries.find((candidate) => candidate.record?.id === record.id);
       await attachEntry(controller, entry);
     }
   });
 
-  command('remoteAgentSessions.attach', async (item) => {
+  command('remoteAgentSessions.attach', async (item, report) => {
     const resolved = await resolveSession(item, provider, (entry) => entry.status === 'live');
     if (!resolved) return;
+    report('Checking session identity and opening the terminal');
     await attachEntry(resolved.controller, resolved.entry);
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
   });
 
   command('remoteAgentSessions.adopt', async (item) => {
     const resolved = await resolveSession(item, provider, (entry) => !entry.managed && entry.status === 'live');
     if (!resolved) return;
     await resolved.controller.manager.adopt(resolved.entry, resolved.entry.tmuxSession);
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
     vscode.window.showInformationMessage(`Recovery enabled for ${resolved.entry.tmuxSession}.`);
   });
 
@@ -330,13 +550,9 @@ async function activate(context) {
       validateInput: validateTmuxNameInput
     });
     if (!tmuxSession) return;
-    const oldKey = `${resolved.controller.host.id}:${entry.id}`;
     await resolved.controller.manager.renameSession(entry, tmuxSession.trim(), tmuxSession.trim());
-    if (!entry.managed && terminals.has(oldKey)) {
-      terminals.set(`${resolved.controller.host.id}:tmux:${tmuxSession.trim()}`, terminals.get(oldKey));
-      terminals.delete(oldKey);
-    }
-    await provider.refresh(resolved.controller, false);
+    // Unmanaged session IDs use tmux identity, so renaming preserves the terminal key.
+    provider.changed();
   });
 
   command('remoteAgentSessions.addNote', async (item) => {
@@ -345,7 +561,7 @@ async function activate(context) {
     const note = await vscode.window.showInputBox({ title: 'Session Note', value: resolved.entry.record.note || '' });
     if (note === undefined) return;
     await resolved.controller.manager.setNote(resolved.entry.record, note.trim());
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
   });
 
   command('remoteAgentSessions.showDetails', async (item) => {
@@ -374,18 +590,30 @@ async function activate(context) {
     });
     if (value === undefined) return;
     await resolved.controller.manager.setCommand(record, pane.wi, pane.pi, value.trim());
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
   });
 
   command('remoteAgentSessions.restore', async (item) => {
     const resolved = await resolveSession(item, provider, (entry) => entry.status === 'recoverable');
     if (!resolved) return;
-    const execute = await chooseRestoreCommandPolicy(resolved.entry.record, configuration);
+    let record = resolved.entry.record;
+    let execute;
+    if (needsAgentBinding(record) && configuration.get('restoreCommands', 'ask') !== 'never') {
+      const answer = await vscode.window.showWarningMessage(
+        'This older record has no Agent conversation ID. Link the original conversation to resume its history.',
+        { modal: true }, 'Bind Original Conversation', 'Restore Shells Only');
+      if (answer === 'Restore Shells Only') execute = false;
+      else if (answer === 'Bind Original Conversation') {
+        if (!await bindOriginalConversation(resolved.controller, record)) return;
+        record = resolved.controller.manager.records.find(candidate => candidate.id === record.id);
+      } else return;
+    }
+    if (execute === undefined) execute = await chooseRestoreCommandPolicy(record, configuration);
     if (execute === undefined) return;
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Restoring ${resolved.entry.title} on ${resolved.controller.host.label}…` }, () =>
-      resolved.controller.manager.restore(resolved.entry.record, execute)
+      resolved.controller.manager.restore(record, execute)
     );
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
     const restored = resolved.controller.manager.entries.find((entry) => entry.record?.id === resolved.entry.record.id);
     await attachEntry(resolved.controller, restored);
   });
@@ -399,7 +627,7 @@ async function activate(context) {
     );
     if (answer !== 'Terminate') return;
     await resolved.controller.manager.terminate(resolved.entry);
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
   });
 
   command('remoteAgentSessions.delete', async (item) => {
@@ -419,7 +647,7 @@ async function activate(context) {
     if (terminal && terminal.exitStatus === undefined) terminal.dispose();
     terminals.delete(key);
     await resolved.controller.manager.deleteSession(resolved.entry);
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
   });
 
   command('remoteAgentSessions.forget', async (item) => {
@@ -431,7 +659,7 @@ async function activate(context) {
     );
     if (answer !== 'Forget') return;
     await resolved.controller.manager.forget(resolved.entry.record);
-    await provider.refresh(resolved.controller, false);
+    provider.changed();
   });
 
   command('remoteAgentSessions.importLegacy', async (item) => {
@@ -516,6 +744,9 @@ async function activate(context) {
   });
 
   await provider.reloadHosts();
+  controllersReady = true;
+  for (const terminal of vscode.window.terminals) reconnectTerminal(terminal).catch(() => {});
+  scheduleEditorTerminalStatus();
   if (!provider.controllers.length) {
     status.text = '$(remote) Add SSH Host';
     status.tooltip = 'Open TmuxDock and add an SSH host';
@@ -525,12 +756,17 @@ async function activate(context) {
   const interval = setInterval(() => {
     if (refreshQueued) return;
     refreshQueued = true;
-    operation = operation.then(() => provider.refresh()).catch(() => {}).finally(() => { refreshQueued = false; });
+    Promise.all(provider.controllers.filter(controller => !operations.isBusy(controller.host.id))
+      .map(controller => controller.refresh())).then(() => provider.changed())
+      .catch(() => {}).finally(() => { refreshQueued = false; });
   }, Math.max(10, configuration.get('refreshInterval', 30)) * 1000);
   context.subscriptions.push(
     { dispose: () => clearInterval(interval) },
     vscode.window.onDidCloseTerminal((terminal) => {
+      terminalConnections.forget(terminal).catch(() => {});
       for (const [key, value] of terminals) if (value === terminal) terminals.delete(key);
+      terminalContexts.delete(terminal);
+      updateTerminalStatus();
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('remoteAgentSessions.sshPath') || event.affectsConfiguration('remoteAgentSessions.connectTimeout') ||
@@ -539,10 +775,11 @@ async function activate(context) {
       }
     })
   );
-  return { registry, provider, get controllers() { return provider.controllers; } };
+  return { registry, provider, view, attachEntry, get terminalStatus() { return terminalStatus; },
+    get controllers() { return provider.controllers; } };
 }
 
-function deactivate() {}
+function deactivate() { return terminalConnections?.pending; }
 
 async function resolveHost(item, provider) {
   if (item?.controller) return item.controller;
@@ -561,7 +798,7 @@ async function resolveHost(item, provider) {
 
 async function resolveSession(item, provider, predicate) {
   if (item?.kind === 'session') {
-    await item.controller.refresh();
+    // Use the displayed entry; lifecycle methods and attach validate live identity themselves.
     const entry = item.controller.manager.entries.find((candidate) => candidate.id === item.entry.id);
     if (entry && predicate(entry)) return { controller: item.controller, entry };
     vscode.window.showInformationMessage('This session changed. Refresh and select it again.');
@@ -569,7 +806,7 @@ async function resolveSession(item, provider, predicate) {
   }
   const controller = await resolveHost(item, provider);
   if (!controller) return null;
-  await controller.refresh();
+  await controller.refresh(false);
   const candidates = controller.manager.entries.filter(predicate);
   if (!candidates.length) { vscode.window.showInformationMessage('No matching sessions found.'); return null; }
   if (candidates.length === 1) return { controller, entry: candidates[0] };
@@ -612,6 +849,7 @@ function browseRemoteWorkingDirectory(controller, initialDirectory) {
       const requested = input.trim();
       if (validateRemoteDirectoryInput(requested)) {
         picker.items = [{ label: '$(warning) Enter an absolute remote path', description: requested }];
+        picker.busy = false;
         return;
       }
       picker.busy = true;
@@ -643,13 +881,18 @@ function browseRemoteWorkingDirectory(controller, initialDirectory) {
 
     picker.onDidChangeValue((value) => {
       clearTimeout(timer);
+      generation += 1;
+      picker.busy = true;
+      picker.items = [];
       timer = setTimeout(() => load(value), 250);
     });
     picker.onDidAccept(async () => {
+      if (picker.busy) return;
       const item = picker.activeItems[0];
       if (item?.accept) return finish(item.directory);
       if (item?.directory) {
         picker.value = item.directory;
+        clearTimeout(timer);
         await load(item.directory);
         return;
       }
@@ -685,6 +928,10 @@ async function chooseRestoreCommandPolicy(record, configuration) {
   const policy = configuration.get('restoreCommands', 'ask');
   if (policy === 'always') return true;
   if (policy === 'never') return false;
+  const runnable = record.windows.flatMap(window => window.panes?.length ? window.panes : [window]).filter(pane => pane.command);
+  // A bound original conversation is what Restore means for an Agent session.
+  // Keep prompting before unrelated custom commands in any other pane.
+  if (runnable.length && runnable.every(pane => pane.agent?.recoveryVersion === 1)) return true;
   const answer = await vscode.window.showWarningMessage(
     `Rebuild ${record.title}. Run its saved startup commands?`,
     { modal: true, detail: commands.join('\n') }, 'Restore and Run Commands', 'Restore Shells Only'
@@ -692,29 +939,61 @@ async function chooseRestoreCommandPolicy(record, configuration) {
   return answer === 'Restore and Run Commands' ? true : answer === 'Restore Shells Only' ? false : undefined;
 }
 
+async function bindOriginalConversation(controller, record) {
+  const type = builtinAgent(record.agent?.type) ? record.agent.type
+    : (await vscode.window.showQuickPick([{ label: 'Claude', type: 'claude' }, { label: 'Codex', type: 'codex' }],
+      { title: 'Agent type for the original conversation' }))?.type;
+  if (!type) return false;
+  const id = await vscode.window.showInputBox({
+    title: `Bind Original ${type === 'codex' ? 'Codex' : 'Claude'} Conversation`,
+    prompt: 'Paste the original conversation UUID from the Agent CLI. The ID is verified before binding; a new conversation will not be created.',
+    value: record.agent?.sessionId || '',
+    validateInput: value => UUID.test(value.trim()) ? null : 'Enter a conversation UUID, not a name or --last'
+  });
+  if (!id) return false;
+  await controller.manager.bindAgentSession(record, type, id.trim());
+  return true;
+}
+
 async function attachEntry(controller, entry) {
   if (!entry) return;
-  const live = (await controller.tmux.list()).find((session) => session.name === entry.tmuxSession);
-  if (!live || (entry.record && !owns(entry.record, live))) throw new Error('Session is unavailable or its identity changed');
   const key = `${controller.host.id}:${entry.id}`;
+  if (!terminals.has(key)) await Promise.all(vscode.window.terminals
+    .filter(terminal => terminalConnections.matches(terminal, controller, entry))
+    .map(terminal => reconnectTerminal(terminal)));
   const existing = terminals.get(key);
-  if (existing && existing.exitStatus === undefined) { existing.show(); return; }
-  const tmuxArgs = ['-u', ...controller.tmux.prefixArgs, 'attach-session', '-t', `=${entry.tmuxSession}`];
+  if (existing && existing.exitStatus === undefined) {
+    terminalContexts.set(existing, { controller, entry });
+    existing.show();
+    updateTerminalStatus(existing);
+    return;
+  }
+  const live = (await controller.tmux.list()).find((session) => session.name === entry.tmuxSession);
+  if (!live || (entry.record && !owns(entry.record, live)) ||
+      (entry.live && (entry.live.id !== live.id || entry.live.created !== live.created))) {
+    throw new Error('Session is unavailable or its identity changed. Refresh and select it again.');
+  }
+  const attachScript = guardedAttachScript(controller.tmux, live);
   const sameRemote = currentRemoteHost() === controller.host.sshHost;
   const location = controller.configuration.get('sessionTerminalLocation', 'editor') === 'panel'
     ? vscode.TerminalLocation.Panel
     : { viewColumn: vscode.ViewColumn.Active, preserveFocus: false };
   const terminal = vscode.window.createTerminal({
-    name: `${controller.host.label}: ${entry.title}`,
-    shellPath: sameRemote ? controller.host.tmuxPath : controller.ssh.sshPath,
-    shellArgs: sameRemote ? tmuxArgs : controller.ssh.terminalArgs(controller.host.tmuxPath, tmuxArgs),
-    env: { TMUX: null },
+    name: terminalTitle(entry.title, new Set(vscode.window.terminals.map(terminal => terminal.name))),
+    iconPath: sessionIconPath(entry),
+    shellPath: sameRemote ? 'sh' : controller.ssh.sshPath,
+    shellArgs: sameRemote ? ['-c', attachScript] : controller.ssh.terminalArgs('sh', ['-c', attachScript]),
+    env: { TMUX: null, [TERMINAL_CONTEXT]: terminalMetadata(controller.host, entry, live) },
     location,
-    isTransient: true,
-    message: 'Closing this terminal detaches from tmux; it does not terminate the remote task.\r\n'
+    isTransient: false,
+    message: `TmuxDock · Host: ${bannerText(controller.host.label)} (${bannerText(controller.host.sshHost)}) · Session: ${bannerText(entry.title)}\r\n` +
+      'Closing this terminal detaches from tmux; it does not terminate the remote task.\r\n'
   });
   terminals.set(key, terminal);
+  terminalContexts.set(terminal, { controller, entry });
+  terminalConnections.remember(terminal).catch(error => vscode.window.showWarningMessage('TmuxDock could not save terminal reconnection identity: ' + humanError(error)));
   terminal.show();
+  updateTerminalStatus(terminal);
   if (entry.record) await controller.manager.markAttached(entry.record);
 }
 
@@ -727,16 +1006,17 @@ function currentRemoteHost() {
 }
 
 function buildDescription(entry) {
-  const parts = [];
-  if (entry.record?.gitBranch) parts.push(entry.record.gitBranch);
-  if (entry.status === 'recoverable') parts.push('rebuild available');
-  return parts.join(' · ');
+  if (entry.status !== 'recoverable') return '';
+  return entry.record?.agent?.sessionId && !entry.record.agent.manualRestore
+    ? `resume ${TYPE_LABELS[entry.record.agent.type]} conversation` : 'rebuild available';
 }
 
 function buildTooltip(controller, entry) {
   const markdown = new vscode.MarkdownString();
   markdown.appendMarkdown(`**${escapeMarkdown(entry.title)}** on **${escapeMarkdown(controller.host.label)}**\n\n`);
   markdown.appendMarkdown(`Status: ${entry.status}  \nSSH host: \`${escapeInline(controller.host.sshHost)}\`  \ntmux: \`${escapeInline(entry.tmuxSession)}\`  \n`);
+  markdown.appendMarkdown(`Type: ${TYPE_LABELS[sessionType(entry)]}  \n`);
+  if (entry.record?.agent?.sessionId) markdown.appendMarkdown(`Conversation: \`${escapeInline(entry.record.agent.sessionId)}\`  \n`);
   if (entry.cwd) markdown.appendMarkdown(`Directory: \`${escapeInline(entry.cwd)}\`  \n`);
   if (entry.record?.note) markdown.appendMarkdown(`\n${escapeMarkdown(entry.record.note)}`);
   return markdown;
@@ -753,6 +1033,8 @@ function detailsMarkdown(controller, entry) {
   if (entry.cwd) lines.push(`- Working directory: \`${entry.cwd}\``);
   if (record?.repoRoot) lines.push(`- Repository: \`${record.repoRoot}\``);
   if (record?.gitBranch) lines.push(`- Git branch: \`${record.gitBranch}\``);
+  if (record?.agent?.sessionId) lines.push(`- Agent conversation: **${record.agent.type}** / \`${record.agent.sessionId}\``,
+    `- Agent conversation name: ${record.agent.name}`);
   if (record?.agent?.type) lines.push(`- Agent: \`${record.agent.type}\``);
   if (record?.note) lines.push('', '## Note', '', record.note);
   if (record?.windows?.length) {

@@ -1,5 +1,87 @@
 # Changelog
 
+## 2.4.0 — 2026-11-04
+
+- Keep attached terminal tabs across Reload Window through native terminal persistence, preserving editor layout, names and active tabs.
+- Restore host/session associations by verified metadata or workspace-local native process IDs when VS Code omits original launch options.
+- Retain status bar identity, sidebar selection and immediate reuse after reload without restarting agents or recreating closed tabs.
+- Guard saved connection-process revival with the original tmux ID, creation time and owner before attach.
+- Add two actual window reloads in isolated VS Code acceptance, covering colliding titles on two hosts, editor groups, ordinary files, panel terminals, closed tabs and unchanged process IDs.
+
+## 2.3.2 — 2026-11-04
+
+- Group ordered literal-send/Enter, split/layout and pane/window selection into single SSH requests, preserving argv and fail-fast ordering.
+- Combine owner assignment with the initial single-pane snapshot only when no later selection or layout step is needed.
+- Validate each distinct restore directory once, with up to three concurrent read-only checks before creating panes.
+- Preserve durable intent, post-commit startup commands, original conversation verification and rollback boundaries.
+- Add isolated fault, quoting, hook, geometry and selection regression coverage.
+
+## 2.3.1 — 2026-11-04
+
+- Eliminate SSH calls for local notes, restore-command edits, attach bookkeeping and forgetting records.
+- Remove duplicate UI refreshes after manager operations.
+- Carry complete window/pane snapshots in the existing inventory query; reuse them for polling and stop snapshots.
+- Share Git results by directory within a poll and bound independent read concurrency to three.
+- Focus existing terminals immediately even while another operation on the host is slow.
+- Cache Claude CLI capability checks for five minutes and combine Codex bind verification/rename into one connection.
+- Keep destructive-operation identity checks and exact Agent history verification intact.
+
+
+## 2.3.0 — 2026-11-04
+
+- Bind newly created Claude/Codex sessions to stable original conversation IDs and matching names.
+- Use Claude session-id/name and Codex app-server thread creation/name APIs without sending a model turn.
+- Persist pane-level recovery bindings before launching; resume exact IDs after stop/reload and refuse missing history.
+- Add verified original-conversation binding for legacy records; never guess via --last or silently start a replacement conversation.
+- Resume bound Agent panes directly under the default restore policy while retaining custom-command prompts and shell-only settings.
+- Synchronize host status and visible sidebar selection from actual editor tab activation; hide host status on ordinary file tabs.
+- Add no-model-turn CLI metadata verification and isolated real tmux + CLI-fixture lifecycle acceptance.
+
+
+## 2.2.4 — 2026-11-04
+
+- Shorten terminal editor titles to the session name and reuse the session type icon.
+- Add stable numeric suffixes only when an open terminal has the same name.
+- Show the selected TmuxDock terminal host in the status bar, with full context on hover and a click-through to session details.
+- Keep host/SSH target in the terminal startup banner; hide host status when a regular terminal is selected.
+- Preserve terminal reuse by host/session identity independently of the short display name.
+
+
+## 2.2.3 — 2026-11-04
+
+- Replace generic agent glyphs with the exact SVG marks from the official Codex and Claude Code VS Code extensions.
+- Use original black/white Codex sidebar marks for light/dark themes and the original terracotta Claude mark.
+- Preserve branding colors in stopped groups; group labels continue to communicate liveness.
+- Package all assets locally, document provenance and verify all media files byte-for-byte in the VSIX.
+
+
+## 2.2.2 — 2026-11-03
+
+- Distinguish Codex, Claude and shell/custom sessions with robot, sparkle and terminal icons; preserve type shapes in stopped groups.
+- Infer types from configured agents, live pane command names and saved startup commands, without guessing from session titles.
+- Gather session identity and pane command names in a single tmux query, with no extra SSH round trips.
+- Remove branch text from session rows; retain it in session details.
+
+
+## 2.2.1 — 2026-11-03
+
+- Separate running sessions from stopped/recoverable records under each SSH host.
+- Expand Running by default and collapse Stopped / Recoverable; hide empty groups and show counts.
+- Keep unavailable/conflicting states in a separate group without treating connection failures as stopped sessions.
+- Preserve creation-time and saved drag order within each group; reject cross-group moves.
+
+
+## 2.2.0 — 2026-11-03
+
+- Show foreground operation progress, elapsed time and busy tree icons, including while queued; coalesce repeated clicks.
+- Serialize foreground actions per host and keep background snapshots outside the action queue and remote I/O outside the snapshot database lock.
+- Sort sessions by creation time (oldest first), persist drag-and-drop order per host and add a reset-order command.
+- Preserve unmanaged tree identity across rename and avoid activity/status-based reordering.
+- Remove full snapshots before create/attach and redundant refreshes after creation; reuse existing terminals immediately.
+- Query all windows/panes in one tmux call and repository/branch state in one SSH invocation.
+- Skip redundant initial pane selection; retain restore validation, durable intent, rollback and ownership checks.
+- Cover delayed attach feedback, duplicate clicks, actual tree drag/drop, persistent order and concurrent foreground edits during snapshots.
+
 ## 2.1.0 — 2026-09-15
 
 - Rebrand the user-facing product as **TmuxDock**: remote tmux is the product core, while Agent CLIs remain a first-class use case.
