@@ -1,0 +1,13 @@
+{
+  "passed": 6,
+  "checks": [
+    "before reload / dark: official Codex, Claude and shell icons render with loaded fonts",
+    "before reload / light: official Codex, Claude and shell icons render with loaded fonts",
+    "after first reload / dark: official Codex, Claude and shell icons render with loaded fonts",
+    "after first reload / light: official Codex, Claude and shell icons render with loaded fonts",
+    "after second reload / dark: official Codex, Claude and shell icons render with loaded fonts",
+    "after second reload / light: official Codex, Claude and shell icons render with loaded fonts"
+  ],
+  "reloads": 2,
+  "fullRestarts": 0
+}

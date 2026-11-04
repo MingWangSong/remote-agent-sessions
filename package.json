@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Dock and manage persistent tmux sessions across SSH hosts from one local VS Code.",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -58,7 +58,9 @@
     "package": "node scripts/package.js",
     "verify:package": "node scripts/verify-package.js",
     "test:agent-recovery": "node --test --test-concurrency=1 integration/agentRecovery.integration.js",
-    "test:reload": "RAS_TEST_RELOAD=1 node scripts/test-vscode.js"
+    "test:reload": "RAS_TEST_RELOAD=1 node scripts/test-vscode.js",
+    "test:icons": "RAS_TEST_ICONS=1 node scripts/test-vscode.js",
+    "diagnose:restart-icons": "RAS_TEST_ICONS=1 RAS_TEST_FULL_RESTART=1 node scripts/test-vscode.js"
   },
   "contributes": {
     "commands": [
@@ -395,6 +397,22 @@
           "maximum": 3600,
           "description": "Seconds between local SSH refreshes and remote layout snapshots.",
           "scope": "machine"
+        }
+      }
+    },
+    "icons": {
+      "tmuxdock-codex": {
+        "description": "Official Codex / OpenAI session mark",
+        "default": {
+          "fontPath": "./media/brands/session-marks.woff",
+          "fontCharacter": "\\E001"
+        }
+      },
+      "tmuxdock-claude": {
+        "description": "Official Claude session mark",
+        "default": {
+          "fontPath": "./media/brands/session-marks.woff",
+          "fontCharacter": "\\E002"
         }
       }
     }

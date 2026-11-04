@@ -36,6 +36,15 @@ function sessionIconPath(entry) {
     };
 }
 
+function terminalIconPath(entry) {
+  const type = sessionType(entry);
+  // Native terminal editor persistence JSON-serializes icons. VS Code does not
+  // revive the nested URIs of light/dark image icons on every restore path.
+  // Registered font icons retain the official outlines with a stable icon ID,
+  // and resolve assets from the currently installed extension after upgrades.
+  return type === 'shell' ? sessionIconPath(entry) : new vscode.ThemeIcon(`tmuxdock-${type}`);
+}
+
 function updateTerminalStatus(terminal = vscode.window.activeTerminal) {
   if (!terminalStatus) return;
   const context = terminalContexts.get(terminal);
@@ -994,7 +1003,7 @@ async function attachEntry(controller, entry) {
     : { viewColumn: vscode.ViewColumn.Active, preserveFocus: false };
   const terminal = vscode.window.createTerminal({
     name: terminalTitle(entry.title, new Set(vscode.window.terminals.map(terminal => terminal.name))),
-    iconPath: sessionIconPath(entry),
+    iconPath: terminalIconPath(entry),
     shellPath: sameRemote ? 'sh' : controller.ssh.sshPath,
     shellArgs: sameRemote ? ['-c', attachScript] : controller.ssh.terminalArgs('sh', ['-c', attachScript]),
     env: { TMUX: null, [TERMINAL_CONTEXT]: terminalMetadata(controller.host, entry, live) },

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.3 — 2026-11-04
+
+- Use registered font icons with the original official Codex and Claude outlines for terminal tabs, avoiding lost nested image URIs on native restore and stale versioned asset paths after updates.
+- Preserve Claude’s official terracotta color and automatic theme contrast for Codex; sidebar SVGs remain unchanged.
+- Verify actual rendered font glyphs across two window reloads and light/dark themes. Keep an opt-in full-restart diagnostic for the separate, still-unfixed VS Code pty revival issue (microsoft/vscode#335203).
+
 ## 2.4.2 — 2026-11-04
 
 - Resize the existing product icon to 1024x1024 for Marketplace upload and enforce its dimensions during package verification.

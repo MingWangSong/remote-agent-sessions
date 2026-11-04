@@ -15,6 +15,13 @@ const run = promisify(execFile);
   const width = icon.readUInt32BE(16), height = icon.readUInt32BE(20);
   assert.ok(width > 0 && height > 0 && width <= 1024 && height <= 1024,
     `Marketplace icon limit is 1024x1024; received ${width}x${height}`);
+  for (const type of ['codex', 'claude']) {
+    const definition = manifest.contributes.icons[`tmuxdock-${type}`]?.default;
+    assert.ok(definition?.fontPath, `Missing registered ${type} icon`);
+    const font = await fs.readFile(path.join(root, definition.fontPath));
+    assert.equal(font.toString('ascii', 0, 4), 'wOFF', `Invalid ${type} icon font`);
+    assert.equal(font.readUInt32BE(8), font.length, 'Icon font has an invalid length');
+  }
   const vsix = path.resolve(root,`dist/tmuxdock-${manifest.version}.vsix`);
   await run('unzip',['-tq',vsix]);
   const files = (await run('unzip',['-Z1',vsix])).stdout.split('\n');
