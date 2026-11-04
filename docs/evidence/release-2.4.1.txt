@@ -1,0 +1,17 @@
+TmuxDock 2.4.1 release evidence (2026-11-04)
+
+Unit and persistence: 58/58
+Isolated real tmux/Git: 18/18
+Agent recovery with isolated CLI fixtures, no model turns: 4/4
+Final official-publisher VSIX host acceptance: 15/15
+Final official-publisher VSIX actual Reload Window acceptance: 6/6, two reloads
+Public GitHub CI: Ubuntu 22.04 / tmux 3.2a, Ubuntu 24.04, macOS all PASS
+CI code revision: fe71a071225b74b35f8180b67e9c4618eccf5b68
+CI run: https://github.com/MingWangSong/remote-agent-sessions/actions/runs/41770000987
+Runtime source, media and bundled dependencies: byte equality PASS
+Official publisher: mingwangsong
+Official VSIX SHA-256: 6291f15bbaeb210beac300c794e2a083287472ad881a957790f296c5c846c913
+
+The unchanged real-SSH lifecycle was last validated with 2.4.0 (1/1); this patch's
+connection guard was validated by real Linux tmux CI and final VSIX terminal tests.
+No existing remote sessions or saved local session records were modified.
