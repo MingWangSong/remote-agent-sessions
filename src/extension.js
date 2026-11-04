@@ -22,6 +22,7 @@ const terminalContexts = new Map();
 let terminalStatus;
 let syncTreeSelection = () => {};
 let statusSyncTimer;
+let lastSelectedEditorTab;
 let terminalConnections;
 let reconnectTerminal = async () => {};
 
@@ -52,6 +53,7 @@ function activeTerminalChanged(terminal) {
   // A terminal panel selection is newer than any queued editor-tab event.
   // Do not let that older event replace its host identity (or hidden status).
   clearTimeout(statusSyncTimer);
+  lastSelectedEditorTab = vscode.window.tabGroups.activeTabGroup.activeTab;
   updateTerminalStatus(terminal);
 }
 
@@ -68,7 +70,12 @@ function syncEditorTerminalStatus() {
   else if (terminalStatus) { terminalStatus.text = ''; terminalStatus.hide(); }
 }
 
-function scheduleEditorTerminalStatus() {
+function scheduleEditorTerminalStatus(force = false) {
+  const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+  // Tab metadata/background-group updates do not mean the editor took focus
+  // from a terminal panel. Only a new editor selection can replace that focus.
+  if (!force && tab === lastSelectedEditorTab) return;
+  lastSelectedEditorTab = tab;
   clearTimeout(statusSyncTimer);
   statusSyncTimer = setTimeout(syncEditorTerminalStatus, 0);
 }
@@ -280,8 +287,8 @@ async function activate(context) {
   terminalStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
   terminalStatus.name = 'TmuxDock Active Session Host';
   context.subscriptions.push(terminalStatus, vscode.window.onDidChangeActiveTerminal(activeTerminalChanged),
-    vscode.window.tabGroups.onDidChangeTabs(scheduleEditorTerminalStatus),
-    vscode.window.tabGroups.onDidChangeTabGroups(scheduleEditorTerminalStatus),
+    vscode.window.tabGroups.onDidChangeTabs(() => scheduleEditorTerminalStatus()),
+    vscode.window.tabGroups.onDidChangeTabGroups(() => scheduleEditorTerminalStatus()),
     { dispose: () => { clearTimeout(statusSyncTimer); syncTreeSelection = () => {}; terminalStatus = undefined; terminalContexts.clear(); terminals.clear(); } });
 
   const updateStatus = (controllers) => {
@@ -305,7 +312,7 @@ async function activate(context) {
       if (terminals.has(key)) return;
       terminals.set(key, terminal);
       terminalContexts.set(terminal, restored);
-      scheduleEditorTerminalStatus();
+      scheduleEditorTerminalStatus(true);
     })().finally(() => reconnecting.delete(terminal));
     reconnecting.set(terminal, pending);
     return pending;
@@ -753,7 +760,7 @@ async function activate(context) {
   await provider.reloadHosts();
   controllersReady = true;
   for (const terminal of vscode.window.terminals) reconnectTerminal(terminal).catch(() => {});
-  scheduleEditorTerminalStatus();
+  scheduleEditorTerminalStatus(true);
   if (!provider.controllers.length) {
     status.text = '$(remote) Add SSH Host';
     status.tooltip = 'Open TmuxDock and add an SSH host';
