@@ -5,6 +5,7 @@ permissions:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
@@ -19,6 +20,7 @@ jobs:
       - if: runner.os == 'macOS'
         run: brew install tmux
       - run: npm ci
+      - run: tmux -V && node --version
       - run: npm run verify
       - run: npm run test:integration
       - if: runner.os == 'Linux'

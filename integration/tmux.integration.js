@@ -138,8 +138,13 @@ test('real tmux: a revived terminal refuses a changed owner or a same-name repla
   assert.equal((await tmux.list()).find(session => session.name === record.tmuxSession).attached, 0);
   await tmux.kill(record.tmuxSession);
   await tmux.create(record.tmuxSession, directory);
+  const beforeGuard = await tmux.list();
+  assert.ok(beforeGuard.some(session => session.name === record.tmuxSession), 'replacement must exist before checking the stale connection');
   await assert.rejects(run('sh', ['-c', script], { env }));
-  const replacement = (await tmux.list()).find(session => session.name === record.tmuxSession);
+  const afterGuard = await tmux.list();
+  const replacement = afterGuard.find(session => session.name === record.tmuxSession);
+  assert.ok(replacement, JSON.stringify({ expectedName: record.tmuxSession, beforeGuard, afterGuard,
+    sessions: await tmux.run(['list-sessions', '-F', '#{session_id}:#{session_name}']) }));
   assert.notEqual(replacement.id, live.id);
   assert.equal(replacement.attached, 0);
 });
