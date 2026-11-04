@@ -6,14 +6,14 @@ const { EventEmitter } = require('node:events');
 const { AgentSessions, agentCommand, needsAgentBinding } = require('../src/agentSessions');
 const id = '550e8400-e29b-41d4-a716-446655440000';
 
-function rpcTransport() {
+function rpcTransport(resultFor) {
   const calls = [];
   return { calls, openProcess() {
     const child = new EventEmitter(); child.stdout = new PassThrough(); child.stderr = new PassThrough(); child.exitCode = null;
     child.stdin = new Writable({ write(chunk, encoding, done) {
       const message = JSON.parse(chunk.toString()); calls.push(message);
       if (message.id != null) queueMicrotask(() => child.stdout.write(JSON.stringify({ id: message.id,
-        result: message.method === 'thread/start' ? { thread: { id } } : {} }) + '\n'));
+        ...(resultFor?.(message) || { result: message.method === 'thread/start' ? { thread: { id } } : {} }) }) + '\n'));
       done();
     } });
     child.stdin.on('finish', () => { child.exitCode = 0; child.emit('exit', 0); });
@@ -70,4 +70,33 @@ test('Codex binding verifies and renames on a single metadata connection', async
   await agents.bind('codex', id, 'existing');
   assert.equal(connections, 1);
   assert.deepEqual(transport.calls.filter(call => call.id).map(call => call.method), ['initialize', 'thread/read', 'thread/name/set']);
+});
+
+test('Codex history discovery pages across providers without starting or renaming a conversation', async () => {
+  const transport = rpcTransport(message => message.method === 'thread/list' ? { result: { data: [
+    { id, name: 'Original task', cwd: '/project', preview: 'Fix a bug', createdAt: 1, updatedAt: 2, turns: ['must not retain'] },
+    { id, name: 'duplicate' }, { id: 'invalid' },
+    { id: '550e8400-e29b-41d4-a716-446655440001', ephemeral: true }
+  ], nextCursor: 'opaque-cursor' } } : null);
+  const agents = new AgentSessions(transport);
+  const page = await agents.listCodexConversations({ cwd: '/project', cursor: 'previous', archived: true });
+  assert.equal(page.conversations.length, 1);
+  assert.deepEqual(page.conversations[0], { id, name: 'Original task', cwd: '/project', preview: 'Fix a bug', createdAt: 1, updatedAt: 2, archived: true });
+  assert.equal(page.nextCursor, 'opaque-cursor');
+  const params = transport.calls.find(call => call.method === 'thread/list').params;
+  assert.deepEqual(params.modelProviders, []);
+  assert.ok(params.sourceKinds.includes('cli') && params.sourceKinds.includes('appServer'));
+  assert.equal(params.cwd, '/project'); assert.equal(params.cursor, 'previous'); assert.equal(params.archived, true);
+  assert.deepEqual(transport.calls.filter(call => call.id).map(call => call.method), ['initialize', 'thread/list']);
+});
+
+test('selecting archived Codex history unarchives and verifies that exact ID before naming it', async () => {
+  const transport = rpcTransport(); const agents = new AgentSessions(transport);
+  await agents.bind('codex', id, 'Legacy task', { archived: true });
+  const calls = transport.calls.filter(call => call.id);
+  assert.deepEqual(calls.map(call => call.method), ['initialize', 'thread/unarchive', 'thread/read', 'thread/name/set']);
+  assert.ok(calls.slice(1).every(call => call.params.threadId === id));
+  const failing = rpcTransport(message => message.method === 'thread/read' ? { error: { message: 'History missing' } } : null);
+  await assert.rejects(new AgentSessions(failing).bind('codex', id, 'Legacy'), /History missing/);
+  assert.ok(!failing.calls.some(call => call.method === 'thread/name/set' || call.method === 'thread/start' || call.method.startsWith('turn/')));
 });

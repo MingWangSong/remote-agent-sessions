@@ -27,13 +27,15 @@ if(type==='codex'&&args[0]==='app-server'){
  if(m.method==='thread/start'){const id=crypto.randomUUID();d[id]={id,cwd:m.params.cwd};save(d);result={thread:{id}};}
  if(m.method==='thread/name/set'){if(!d[m.params.threadId])throw Error('missing thread');d[m.params.threadId].name=m.params.name;save(d);}
  if(m.method==='thread/read'){if(!d[m.params.threadId]){console.log(JSON.stringify({id:m.id,error:{message:'Original conversation missing'}}));return;}result={thread:d[m.params.threadId]};}
+ if(m.method==='thread/list'){result={data:Object.values(d).filter(t=>!!t.archived===!!m.params.archived&&(!m.params.cwd||t.cwd===m.params.cwd)),nextCursor:null};}
+ if(m.method==='thread/unarchive'){if(!d[m.params.threadId])throw Error('missing original');d[m.params.threadId].archived=false;save(d);result={thread:d[m.params.threadId]};}
  console.log(JSON.stringify({id:m.id,result}));});
 }else{
  let id,name,mode;
  if(type==='claude'){const fresh=args.includes('--session-id');id=args[args.indexOf(fresh?'--session-id':'--resume')+1];name=args[args.indexOf('--name')+1];mode=fresh?'new':'resume';
  const dir=path.join(process.env.CLAUDE_CONFIG_DIR,'projects','fixture');fs.mkdirSync(dir,{recursive:true});const transcript=path.join(dir,id+'.jsonl');
  if(!fresh&&!fs.existsSync(transcript))throw Error('missing original history');fs.writeFileSync(transcript,JSON.stringify({sessionId:id,name}));
- }else{id=args[1];const d=load();if(!d[id])throw Error('missing original thread');name=d[id].name;mode='resume';}
+ }else{id=args[1];const d=load();if(!d[id]||d[id].archived)throw Error('missing original thread');name=d[id].name;mode='resume';}
  fs.appendFileSync(path.join(root,'launches.jsonl'),JSON.stringify({type,id,name,mode})+'\\n');console.log('FIXTURE_AGENT_READY');setInterval(()=>{},1000);
 }
 `;
@@ -115,4 +117,31 @@ test('a legacy record can bind an existing original conversation and resume it w
   const launches = await f.waitLaunches(2);
   assert.equal(launches[1].id, launches[0].id);
   assert.equal(launches[1].mode, 'resume');
+});
+
+for (const archived of [false, true]) test(`legacy Codex history discovery and exact-ID recovery (archived=${archived})`, async t => {
+  const f = await fixture(t); const manager = f.manager();
+  const original = await manager.create({ title: 'Original Codex work', cwd: f.dir, agent: { type: 'codex' }, command: 'codex' });
+  await f.waitLaunches(1); await manager.terminate(original);
+  const history = JSON.parse(await fs.readFile(path.join(f.dir, 'threads.json'), 'utf8'));
+  history[original.agent.sessionId].archived = archived;
+  await fs.writeFile(path.join(f.dir, 'threads.json'), JSON.stringify(history));
+  await f.store.transaction(records => {
+    records[0].agent = { type: 'codex' }; delete records[0].windows[0].panes[0].agent;
+    records[0].windows[0].panes[0].command = 'codex'; records[0].windows[0].command = 'codex';
+  });
+  const page = await f.agents.listCodexConversations({ cwd: f.dir, archived });
+  assert.equal(page.conversations.length, 1);
+  assert.equal(page.conversations[0].id, original.agent.sessionId);
+  assert.equal((await f.launches()).length, 1, 'discovery must not launch an agent');
+  await manager.bindAgentSession(original, 'codex', page.conversations[0].id, { archived });
+  const saved = (await f.store.load())[0];
+  assert.equal(saved.agent.sessionId, original.agent.sessionId);
+  await manager.restore(saved, true);
+  const launches = await f.waitLaunches(2);
+  assert.equal(launches[1].id, launches[0].id);
+  assert.equal(launches[1].mode, 'resume');
+  const after = JSON.parse(await fs.readFile(path.join(f.dir, 'threads.json'), 'utf8'));
+  assert.equal(Object.keys(after).length, 1, 'no replacement conversation created');
+  assert.equal(after[original.agent.sessionId].archived, false);
 });

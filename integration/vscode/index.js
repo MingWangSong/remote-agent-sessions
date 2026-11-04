@@ -57,6 +57,41 @@ exports.run = async function () {
     assert.equal(roots[0].controller.host.sshHost, 'fake-host');
   });
 
+  await check('Legacy Codex binding selects a readable history instead of requiring a pasted UUID', async () => {
+    const legacy = await controller.manager.create({ title: 'Legacy Codex acceptance', cwd: directory });
+    await controller.manager.terminate(legacy);
+    await controller.manager.store.transaction(records => {
+      const old = records.find(record => record.id === legacy.id);
+      old.agent = { type: 'codex' }; old.windows[0].panes[0].command = 'codex';
+    });
+    await controller.manager.reloadRecords();
+    const originalAgents = controller.manager.agents;
+    const originalId = '550e8400-e29b-41d4-a716-446655440000';
+    let loaded = false, linked = false;
+    controller.manager.agents = {
+      listCodexConversations: async () => { loaded = true; return { conversations: [{ id: originalId,
+        name: 'Readable original conversation', preview: 'Original user task', cwd: directory, updatedAt: 1730831111, archived: false }], nextCursor: null }; },
+      bind: async (type, sessionId, name) => {
+        linked = true; assert.equal(sessionId, originalId);
+        return { type, sessionId, name, recoveryVersion: 1, launchState: 'started' };
+      }
+    };
+    try {
+      const item = sessionItems(api.provider.getChildren()[0]).find(item => item.entry.id === legacy.id);
+      const pending = vscode.commands.executeCommand('remoteAgentSessions.bindAgentSession', item);
+      await waitFor(() => loaded); await sleep(100);
+      assert.equal(linked, false, 'loading even one result must not bind it automatically');
+      await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+      await pending;
+      const saved = (await controller.manager.store.load()).find(record => record.id === legacy.id);
+      assert.equal(saved.agent.sessionId, originalId);
+      assert.equal(saved.windows[0].panes[0].agent.sessionId, originalId);
+      assert.ok(saved.windows[0].panes[0].command.includes(originalId));
+      assert.ok(!saved.windows[0].panes[0].command.includes('--last'));
+    } finally { controller.manager.agents = originalAgents; }
+    await controller.manager.forget(legacy);
+  });
+
   await check('Create through SSH appears as a live managed child', async () => {
     record = await controller.manager.create({ title: 'VS Code SSH acceptance', cwd: directory, host: host.id });
     await api.provider.refresh(controller, false);

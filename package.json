@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Dock and manage persistent tmux sessions across SSH hosts from one local VS Code.",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -49,7 +49,7 @@
     "onStartupFinished"
   ],
   "scripts": {
-    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js && node --check src/sessionOrder.js && node --check src/operations.js && node --check src/sessionType.js && node --check src/terminalTitle.js && node --check src/agentSessions.js && node --check src/terminalPersistence.js && node --check scripts/test-vscode.js",
+    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js && node --check src/sessionOrder.js && node --check src/operations.js && node --check src/sessionType.js && node --check src/terminalTitle.js && node --check src/agentSessions.js && node --check src/terminalPersistence.js && node --check scripts/test-vscode.js && node --check src/conversationPicker.js",
     "test": "node --test test/*.test.js",
     "verify": "npm run check && npm test",
     "test:integration": "node --test --test-concurrency=1 integration/tmux.integration.js",

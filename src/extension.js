@@ -16,6 +16,7 @@ const { sessionType, TYPE_ICONS, TYPE_LABELS } = require('./sessionType');
 const { terminalTitle, bannerText } = require('./terminalTitle');
 const { AgentSessions, builtinAgent, needsAgentBinding, UUID } = require('./agentSessions');
 const { TERMINAL_CONTEXT, TerminalConnections, terminalMetadata, guardedAttachScript } = require('./terminalPersistence');
+const { chooseCodexConversation } = require('./conversationPicker');
 
 const terminals = new Map();
 const terminalContexts = new Map();
@@ -623,10 +624,10 @@ async function activate(context) {
     let execute;
     if (needsAgentBinding(record) && configuration.get('restoreCommands', 'ask') !== 'never') {
       const answer = await vscode.window.showWarningMessage(
-        'This older record has no Agent conversation ID. Link the original conversation to resume its history.',
-        { modal: true }, 'Bind Original Conversation', 'Restore Shells Only');
+        'This older record has no saved conversation link. Choose the original history to continue it.',
+        { modal: true }, 'Choose Original Conversation', 'Restore Shells Only');
       if (answer === 'Restore Shells Only') execute = false;
-      else if (answer === 'Bind Original Conversation') {
+      else if (answer === 'Choose Original Conversation') {
         if (!await bindOriginalConversation(resolved.controller, record)) return;
         record = resolved.controller.manager.records.find(candidate => candidate.id === record.id);
       } else return;
@@ -967,6 +968,12 @@ async function bindOriginalConversation(controller, record) {
     : (await vscode.window.showQuickPick([{ label: 'Claude', type: 'claude' }, { label: 'Codex', type: 'codex' }],
       { title: 'Agent type for the original conversation' }))?.type;
   if (!type) return false;
+  if (type === 'codex') {
+    const selected = await chooseCodexConversation(vscode.window, controller.manager.agents, record, controller.host.label);
+    if (!selected) return false;
+    await controller.manager.bindAgentSession(record, type, selected.sessionId, { archived: selected.archived });
+    return true;
+  }
   const id = await vscode.window.showInputBox({
     title: `Bind Original ${type === 'codex' ? 'Codex' : 'Claude'} Conversation`,
     prompt: 'Paste the original conversation UUID from the Agent CLI. The ID is verified before binding; a new conversation will not be created.',

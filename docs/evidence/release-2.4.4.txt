@@ -1,0 +1,8 @@
+TmuxDock 2.4.4 legacy Codex conversation recovery
+
+Local verification: 65 unit tests, 18 real tmux/Git tests, 6 fixture-agent recovery tests, 16 source and 16 final-VSIX VS Code checks passed.
+The new history flow was exercised through an actual VS Code QuickPick; metadata discovery never binds automatically.
+Fixture-agent tests cover active and archived legacy Codex histories, unchanged conversation UUIDs, and no replacement thread creation.
+Read-only history listing also succeeded against an existing remote Codex installation, including cwd and archived filters. No real history was bound, renamed, unarchived or resumed by verification; no paid model turn was sent.
+
+Official VSIX SHA-256: dd85839f1915e56c47419bd192573a24d556f1d52acd733f80a99953eafca292

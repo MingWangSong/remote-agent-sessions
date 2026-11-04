@@ -310,10 +310,10 @@ class SessionManager {
     });
   }
 
-  async bindAgentSession(input, type, sessionId) {
+  async bindAgentSession(input, type, sessionId, options) {
     if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
     const record = find(await this.store.load(), input);
-    const binding = await this.agents.bind(type, sessionId, record.title);
+    const binding = await this.agents.bind(type, sessionId, record.title, options);
     await this.saveAgentBinding(input, binding);
     await this.reloadRecords();
   }

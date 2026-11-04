@@ -23,6 +23,7 @@ jobs:
       - run: tmux -V && node --version
       - run: npm run verify
       - run: npm run test:integration
+      - run: npm run test:agent-recovery
       - if: runner.os == 'Linux'
         run: xvfb-run -a npm run test:vscode
       - if: runner.os == 'Linux'

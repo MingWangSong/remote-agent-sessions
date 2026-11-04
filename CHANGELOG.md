@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.4 — 2026-11-04
+
+- Let legacy Codex records choose their original conversation from remote history by title, preview, date and working directory, with pagination, all-directory and archived-history views.
+- Keep manual UUID entry as a fallback; never auto-bind by matching names, directories or dates. Discovery sends no model turn and creates no conversation.
+- Verify and persist the explicitly selected ID for future exact resume. Choosing an archived history unarchives that same conversation before binding it.
+
 ## 2.4.3 — 2026-11-04
 
 - Use registered font icons with the original official Codex and Claude outlines for terminal tabs, avoiding lost nested image URIs on native restore and stale versioned asset paths after updates.

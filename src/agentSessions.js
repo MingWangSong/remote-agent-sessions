@@ -88,7 +88,7 @@ class AgentSessions {
   async codex(callback) {
     const rpc = new RpcClient(this.transport.openProcess('sh', ['-c', AGENT_EXEC, 'tmuxdock-agent', 'codex', 'app-server']));
     try {
-      await rpc.request('initialize', { clientInfo: { name: 'tmuxdock', title: 'TmuxDock', version: '2.4.3' } });
+      await rpc.request('initialize', { clientInfo: { name: 'tmuxdock', title: 'TmuxDock', version: '2.4.4' } });
       rpc.notify('initialized');
       return await callback(rpc);
     } finally { await rpc.close(); }
@@ -124,9 +124,31 @@ class AgentSessions {
     }
     return agent;
   }
-  async bind(type, sessionId, name) {
+  async listCodexConversations({ cwd, cursor, archived = false } = {}) {
+    const params = { limit: 50, sortKey: 'updated_at', modelProviders: [],
+      sourceKinds: ['cli', 'vscode', 'exec', 'appServer', 'unknown'], archived: Boolean(archived) };
+    if (cwd) params.cwd = cwd;
+    if (cursor) params.cursor = cursor;
+    return this.codex(async rpc => {
+      const result = await rpc.request('thread/list', params);
+      if (!Array.isArray(result?.data)) throw new Error('Codex returned an invalid history list');
+      const seen = new Set();
+      const conversations = result.data.filter(thread => UUID.test(thread?.id || '') && !thread.ephemeral &&
+        !seen.has(thread.id) && seen.add(thread.id)).map(thread => ({
+        id: thread.id, name: typeof thread.name === 'string' ? thread.name : '',
+        preview: typeof thread.preview === 'string' ? thread.preview : '',
+        cwd: typeof thread.cwd === 'string' ? thread.cwd : '',
+        createdAt: Number.isFinite(thread.createdAt) ? thread.createdAt : null,
+        updatedAt: Number.isFinite(thread.updatedAt) ? thread.updatedAt : null,
+        archived: Boolean(archived)
+      }));
+      return { conversations, nextCursor: typeof result.nextCursor === 'string' && result.nextCursor ? result.nextCursor : null };
+    });
+  }
+  async bind(type, sessionId, name, { archived = false } = {}) {
     const agent = validateBinding({ type, sessionId, name, recoveryVersion: 1, launchState: 'started' });
     if (type === 'codex') await this.codex(async rpc => {
+      if (archived) await rpc.request('thread/unarchive', { threadId: sessionId });
       await rpc.request('thread/read', { threadId: sessionId, includeTurns: false });
       await rpc.request('thread/name/set', { threadId: sessionId, name });
     });
