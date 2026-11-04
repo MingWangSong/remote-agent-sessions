@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.4.2 — 2026-11-04
+
+- Resize the existing product icon to 1024x1024 for Marketplace upload and enforce its dimensions during package verification.
+- Cancel queued editor-tab status updates when a newer terminal-panel selection arrives, preserving hidden status on ordinary terminals.
+- Retain the exact conversation recovery, reload persistence and tmux 3.2a compatibility fixes.
+
 ## 2.4.1 — 2026-11-04
 
 - Avoid resolving stale session targets in the saved terminal connection guard, which can terminate a tmux 3.2a server.

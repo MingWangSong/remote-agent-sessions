@@ -206,6 +206,10 @@ exports.run = async function () {
       unrelated = vscode.window.createTerminal({ name: 'Unrelated local terminal', shellPath: '/bin/sh', isTransient: true });
       unrelated.show();
       await waitFor(() => api.terminalStatus.text === '');
+      // The previous editor selection may still have a queued tab event.
+      // An ordinary panel terminal must stay unidentified after it settles.
+      await sleep(100);
+      assert.equal(api.terminalStatus.text, '');
     } finally {
       duplicate?.dispose();
       unrelated?.dispose();

@@ -48,6 +48,13 @@ function updateTerminalStatus(terminal = vscode.window.activeTerminal) {
   syncTreeSelection(context);
 }
 
+function activeTerminalChanged(terminal) {
+  // A terminal panel selection is newer than any queued editor-tab event.
+  // Do not let that older event replace its host identity (or hidden status).
+  clearTimeout(statusSyncTimer);
+  updateTerminalStatus(terminal);
+}
+
 function syncEditorTerminalStatus() {
   const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
   if (!(tab?.input instanceof vscode.TabInputTerminal)) {
@@ -272,7 +279,7 @@ async function activate(context) {
   status.show();
   terminalStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
   terminalStatus.name = 'TmuxDock Active Session Host';
-  context.subscriptions.push(terminalStatus, vscode.window.onDidChangeActiveTerminal(updateTerminalStatus),
+  context.subscriptions.push(terminalStatus, vscode.window.onDidChangeActiveTerminal(activeTerminalChanged),
     vscode.window.tabGroups.onDidChangeTabs(scheduleEditorTerminalStatus),
     vscode.window.tabGroups.onDidChangeTabGroups(scheduleEditorTerminalStatus),
     { dispose: () => { clearTimeout(statusSyncTimer); syncTreeSelection = () => {}; terminalStatus = undefined; terminalContexts.clear(); terminals.clear(); } });
