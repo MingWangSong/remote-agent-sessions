@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.5.1 — 2026-11-05
+
+- Redesign GitHub and Marketplace introductions with distinct copy, a dark visual identity and sanitized real-workbench screenshots.
+- Package the dedicated Marketplace README explicitly and add reproducible isolated screenshot capture.
+
 ## 2.5.0 — 2026-11-05
 
 - Make Delete recoverable: durably save the final working directories, pane layout and original Agent conversation bindings before stopping tmux. Keep the saved entry in Stopped / Recoverable; Forget explicitly removes it.

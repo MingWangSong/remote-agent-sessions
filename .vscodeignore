@@ -10,3 +10,6 @@ package-lock.json
 test-results/**
 docs/**
 dist/**
+README.md
+README.zh-CN.md
+CONTRIBUTING.md

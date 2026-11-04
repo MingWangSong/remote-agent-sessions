@@ -88,7 +88,7 @@ class AgentSessions {
   async codex(callback) {
     const rpc = new RpcClient(this.transport.openProcess('sh', ['-c', AGENT_EXEC, 'tmuxdock-agent', 'codex', 'app-server']));
     try {
-      await rpc.request('initialize', { clientInfo: { name: 'tmuxdock', title: 'TmuxDock', version: '2.5.0' } });
+      await rpc.request('initialize', { clientInfo: { name: 'tmuxdock', title: 'TmuxDock', version: '2.5.1' } });
       rpc.notify('initialized');
       return await callback(rpc);
     } finally { await rpc.close(); }

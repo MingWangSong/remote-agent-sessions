@@ -34,6 +34,12 @@ const run = promisify(execFile);
     const packed = (await run('unzip',['-p',vsix,'extension/'+file],{encoding:'buffer'})).stdout;
     assert.deepEqual(packed,await fs.readFile(path.join(root,file)),file+' differs from verified source');
   }
+  const readme = (await run('unzip', ['-p', vsix, 'extension/readme.md'])).stdout;
+  assert.ok(readme.includes('Your remote work, docked.'), 'Dedicated Marketplace README is missing');
+  assert.ok(!readme.includes('Develop with confidence'), 'GitHub copy leaked into Marketplace README');
+  const images = [...readme.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map(match => match[1]);
+  assert.equal(images.length, 4, 'Marketplace needs its hero and three real screenshots');
+  assert.ok(images.every(url => url.startsWith('https://') && url.endsWith('.png')), 'Marketplace images must be HTTPS PNGs');
   for(const dependency of ['proper-lockfile','graceful-fs','retry','signal-exit']) {
     assert.ok(files.includes('extension/node_modules/'+dependency+'/package.json'),'Missing runtime dependency '+dependency);
   }

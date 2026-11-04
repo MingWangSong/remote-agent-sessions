@@ -8,7 +8,7 @@ const { spawn } = require('node:child_process');
   const manifest = require(path.join(root, 'package.json'));
   const output = path.join(root, 'dist', `tmuxdock-${manifest.version}.vsix`);
   await fs.mkdir(path.dirname(output), { recursive: true });
-  const child = spawn(process.execPath, [require.resolve('@vscode/vsce/vsce'), 'package', '--out', output], {
+  const child = spawn(process.execPath, [require.resolve('@vscode/vsce/vsce'), 'package', '--readme-path', 'MARKETPLACE.md', '--out', output], {
     cwd: root,
     stdio: 'inherit'
   });
