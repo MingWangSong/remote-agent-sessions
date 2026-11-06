@@ -348,7 +348,7 @@ async function activate(context) {
 
   const operations = new Operations();
   const labels = { create: 'New session', attach: 'Connecting', refresh: 'Refreshing sessions', restore: 'Restoring session',
-    rename: 'Renaming session', delete: 'Deleting session', terminate: 'Stopping session', adopt: 'Saving recovery snapshot' };
+    rename: 'Renaming session', delete: 'Stopping session', terminate: 'Stopping session', adopt: 'Saving recovery snapshot' };
   const command = (name, handler) => {
     context.subscriptions.push(vscode.commands.registerCommand(name, (...args) => {
       const item = args[0];
