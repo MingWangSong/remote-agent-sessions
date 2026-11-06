@@ -25,7 +25,7 @@ async function inspectIcons() {
         expression: `(async () => {
           await document.fonts.ready;
           return [...document.querySelectorAll('.tabs-container .tab')].map(tab => ({
-            label: tab.textContent, aria: tab.getAttribute('aria-label'),
+            label: tab.getAttribute('aria-label') || tab.textContent, aria: tab.getAttribute('aria-label'),
             theme: document.querySelector('.monaco-workbench').classList.contains('vs') ? 'light' :
               document.querySelector('.monaco-workbench').classList.contains('vs-dark') ? 'dark' : 'other',
             icons: [...tab.querySelectorAll('[class*="codicon-"]')].map(icon => {
