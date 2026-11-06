@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.3.1 — 2026-11-06
+
+- Remove ellipses from file context actions and shorten file, session and host menu labels. Keep command IDs, operation behavior and permanent-delete confirmation unchanged.
+
 ## 3.3.0 — 2026-11-06
 
 - Remove the redundant absolute working path above Session Files; keep the actionable root folder and full-path tooltips.

@@ -1,16 +1,16 @@
-# TmuxDock 3.3.0
+# TmuxDock 3.3.1
 
 把多台 SSH 服务器上的 tmux 会话停靠到本地 VS Code：一处查看、连接、记录和重建；特别适合 Claude Code、Codex 等 Agent CLI。
 
 ## 右侧目录树、文档和实时 HTML
 
 1. 更新插件后在方便时执行 **Developer: Reload Window**。
-2. 右键一个 session → **Show Session Files**，打开右侧原生目录树。也可从命令面板运行同名命令。
-3. 新会话默认固定初始化目录；旧会话首次查看时自动固定已保存目录或当前活动分屏目录。**Link Working Directory** 可修改目录，不需要先启用恢复；未纳管的 tmux 会话也支持。
-4. 单击文件使用原生编辑器，修改后按保存快捷键直接写入远端；目录右键 **Upload Files / Folders…**，文件右键 **Download File…**。HTML / Markdown 分别显示对应预览入口。标题栏提供 **New File… / New Folder…**，始终在工作根目录创建；目录右键的相同入口在该目录内创建。新建文件后会自动打开编辑器。同名创建会报错，不覆盖已有内容；上传入口位于目录右键和标题栏更多菜单。
+2. 右键一个 session → **Session Files**，打开右侧原生目录树。也可从命令面板运行同名命令。
+3. 新会话默认固定初始化目录；旧会话首次查看时自动固定已保存目录或当前活动分屏目录。**Link Directory** 可修改目录，不需要先启用恢复；未纳管的 tmux 会话也支持。
+4. 单击文件使用原生编辑器，修改后按保存快捷键直接写入远端；目录右键 **Upload**，文件右键 **Download**。HTML / Markdown 分别显示对应预览入口。标题栏提供 **New File / New Folder**，始终在工作根目录创建；目录右键的相同入口在该目录内创建。新建文件后会自动打开编辑器。同名创建会报错，不覆盖已有内容；上传入口位于目录右键和标题栏更多菜单。
 5. HTML 自动加载 CSS、JS、图片和根相对路径资源，远端保存后自动重载。Markdown 复用 VS Code 自带预览。每次预览都在当前编辑器分组新建永久标签，同一个文件也可以打开多个预览；切换 session 不替换旧预览。
 6. 插件不自动创建分屏。已有分屏保留用户布局，需要时手动拖动标签。目录树仍可通过 **Pin File Tree** 固定，通过 **Follow Active Session** 恢复跟随；HTML 预览始终固定在自己的文件上，移除旧 Pin 按钮，保留 **Refresh**（手动刷新）与 **Browser**（在 VS Code 浏览器打开）。
-7. session 右键保留查看文件、重命名和 **Stop Session (Keep Recovery Record)**。已停止会话提供恢复和 **Remove Recovery Record**。详情、备注、恢复命令、目录设置等放在 **More Actions**；缺原对话 ID 的 Agent 才在其中显示绑定入口。
+7. session 右键保留查看文件、重命名和 **Stop Session**。已停止会话提供恢复和 **Remove Record**。详情、备注、恢复命令、目录设置等放在 **More Actions**；缺原对话 ID 的 Agent 才在其中显示绑定入口。
 
 远端 Linux/macOS 需要 Python 3，无需部署 Web 服务或安装 VS Code Server。上传使用本机 OpenSSH `sftp`，下载使用 `scp`，推荐 OpenSSH 9+；保留 SSH 配置、连接复用和主机指纹检查。上传先传到同目录临时文件夹，完成后原子提交；同名普通文件覆盖会先确认，目录不合并、不覆盖。目录树内可拖动文件或文件夹到其他目录，拖回根目录行可移回根目录；从桌面拖入文件或整个文件夹到根目录、任意子目录或空白处即可上传。空白处使用当前 session 根目录。下载成功前保留原有本地文件。断线可能留下带随机标识的 `.tmuxdock-upload-*` 临时文件；不会以不完整传输覆盖原文件。
 
@@ -34,7 +34,7 @@
 
 Delete / Stop / Terminate 会先保存删除前最后所在的目录、布局、原对话 ID 和每个 pane 的恢复绑定，再停止 tmux。Restore 会新建同名 tmux，进入保存的最后目录，并续接同一个 Agent 对话。点击停止组中的已绑定 Agent 会话，默认直接按 ID 恢复同一对话，而不是运行一个新的 `claude` / `codex`。配置 `restoreCommands=never` 仍只恢复 shell；其他自定义 pane 命令仍按原有策略询问。原对话历史必须仍保存在服务器上的 CLI 数据目录中；历史缺失时明确报错，不使用 `--last` 猜测，也不静默新建。Claude 首次交互尚未产生可保存历史时，不能承诺恢复一段不存在的对话。
 
-旧版本 Stop 记录没有保存对话 ID：右键 **Bind Original Agent Conversation**，粘贴原 CLI 对话 UUID，验证通过后绑定。此后可以直接续聊；恢复旧记录时也会提供绑定或只重建 shell 的选择。绑定不会复制或保存对话全文。普通 shell 与自定义命令不自动转换为 Agent 恢复。
+旧版本 Stop 记录没有保存对话 ID：右键 **Link Agent History**，粘贴原 CLI 对话 UUID，验证通过后绑定。此后可以直接续聊；恢复旧记录时也会提供绑定或只重建 shell 的选择。绑定不会复制或保存对话全文。普通 shell 与自定义命令不自动转换为 Agent 恢复。
 
 ## 2.4.4 旧 Codex 对话恢复
 
@@ -70,7 +70,7 @@ Codex 使用官方 Codex 扩展的 OpenAI Blossom 标识（浅色主题黑色、
 - 同一会话的重复点击合并；不同服务器独立执行操作，后台快照不会占用前台操作队列。
 - 会话默认按创建时间从早到晚排列，不随活动时间、备注、连接或后台刷新跳动。
 - 在同一服务器内拖拽会话到目标会话上方对应的位置，保存自定义顺序；拖到服务器行则移到末尾。新会话追加到自定义顺序之后。顺序保存在本机，重载后仍生效。
-- 服务器右键 **Reset Session Order (Creation Time)** 恢复创建时间排序。
+- 服务器右键 **Reset Order** 恢复创建时间排序。
 - 创建和连接不再预先快照全部会话；窗口与分屏用一次远程调用读取，Git 信息也合并查询。已有终端可直接复用。
 
 ## 2.0 架构
@@ -94,7 +94,7 @@ Codex 使用官方 Codex 扩展的 OpenAI Blossom 标识（浅色主题黑色、
 
 要求：本机 VS Code 1.106+ 和 OpenSSH；远端 Linux/macOS、tmux 3.2+。Windows 本机需安装并配置 OpenSSH Client。
 
-1. 在本地 VS Code 窗口运行 **Extensions: Install from VSIX...**，选择 `tmuxdock-3.2.0.vsix`。
+1. 在本地 VS Code 窗口运行 **Extensions: Install from VSIX...**，选择 `tmuxdock-3.3.1.vsix`。
 2. 在扩展详情中确认显示 **Installed Locally**，不要点击 Install in SSH。
 3. 点击左侧 **TmuxDock** 图标，再点击顶部 **Add SSH Host** 图标。
 4. 输入 `~/.ssh/config` 中的别名（例如 `dev-server`）或 `user@host`；tmux socket 留空即管理默认 server，也可填写命名 socket 进行隔离。首次主机指纹确认和交互式登录请先在普通终端执行一次 `ssh 主机`。
@@ -107,21 +107,21 @@ macOS/Linux 默认使用 OpenSSH ControlMaster 复用两分钟连接，减少一
 | 对象 | 操作 | 效果 |
 | --- | --- | --- |
 | 顶部 Add Host | Add SSH Host | 添加本地控制的 SSH 主机 |
-| 服务器右键 | Edit Host Configuration | 修改 SSH 目标、显示名、tmux 路径、命名 socket 和默认目录 |
-| 服务器行 New Session | New tmux Session | 实时浏览远端子目录后创建 tmux，可启动 Shell、Claude CLI、Codex CLI 或自定义命令 |
+| 服务器右键 | Edit Host | 修改 SSH 目标、显示名、tmux 路径、命名 socket 和默认目录 |
+| 服务器行 New Session | New Session | 实时浏览远端子目录后创建 tmux，可启动 Shell、Claude CLI、Codex CLI 或自定义命令 |
 | 服务器行 Refresh | Refresh Sessions | 只刷新该 SSH 主机的 tmux 会话与恢复快照 |
-| 服务器右键 | Open Remote Workspace | 用 Remote SSH 在新窗口打开目录 |
-| 服务器右键 | Open SSH Terminal | 打开交互式 SSH，处理密码、二次验证或诊断 |
+| 服务器右键 | Open Workspace | 用 Remote SSH 在新窗口打开目录 |
+| 服务器右键 | SSH Terminal | 打开交互式 SSH，处理密码、二次验证或诊断 |
 | 服务器右键 | Import 1.x Metadata | 从远端旧版 globalStorage 导入记录，原文件保持不变 |
 | 会话点击 | Attach Session | 从本机通过 SSH 连接 tmux，并在中央编辑区打开；同一窗口重复点击会复用终端 |
 | 现有会话右键 | Enable Recovery | 可选：保存恢复快照；不启用也能正常连接、改名和删除 |
 | 会话右键 | Edit Session Note | 保存进度与下一步 |
 | 会话右键 | Edit Restore Command | 为窗口/分屏设置明确的 Agent 续聊或启动命令 |
 | 会话右键 | Rename Session | 只输入一次名称，同时作为列表显示名和真实远端 tmux 名 |
-| 会话右键 | Stop Session (Keep Recovery Record) | 先保存最后目录和原 Agent 对话，再停止远端 tmux；保留恢复记录，需要确认 |
+| 会话右键 | Stop Session | 先保存最后目录和原 Agent 对话，再停止远端 tmux；保留恢复记录，需要确认 |
 | 会话右键 | Forget | 只忘记本地记录，不终止远端进程 |
 
-`Stop Session` 保留恢复记录；旧 Delete / Terminate 命令兼容指向同一停止操作。`Remove Recovery Record` 永久移除本地记录，不停止远端进程。删除前保存或对话校验失败时，正在运行的 session 会保留。旧版未绑定对话的 Agent 会话需要先绑定原对话，不能猜测 UUID；旧版已删除记录不保证可恢复。重命名与删除都会先核对会话身份，防止误操作一个同名但已被替换的 tmux。
+`Stop Session` 保留恢复记录；旧 Delete / Terminate 命令兼容指向同一停止操作。`Remove Record` 永久移除本地记录，不停止远端进程。删除前保存或对话校验失败时，正在运行的 session 会保留。旧版未绑定对话的 Agent 会话需要先绑定原对话，不能猜测 UUID；旧版已删除记录不保证可恢复。重命名与删除都会先核对会话身份，防止误操作一个同名但已被替换的 tmux。
 
 远端原本就存在的 tmux 和 TmuxDock 新建的会话使用同一列表、同一点击与右键操作，不再显示 `unmanaged` 类型。区别只在于旧会话尚未保存恢复快照；需要重启后重建时再点 **Enable Recovery** 即可。新建流程只询问一次 Session Name，工作目录使用可输入、可逐级进入的远端子目录选择器。
 

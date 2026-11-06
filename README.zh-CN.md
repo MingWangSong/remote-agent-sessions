@@ -23,17 +23,17 @@
 
 ## Agent、文件、预览放在一个窗口
 
-右键会话 → **Show Session Files**，在右侧查看固定工作目录。切换 session 标签时目录随之切换，也可通过 **Pin File Tree** 固定当前目录，**Follow Active Session** 恢复跟随。新会话把初始化目录保存为固定根目录；终端后续 `cd` 和 Delete / Restore 都不改变它。旧会话首次使用时自动固定已保存目录或当前活动分屏目录；也可用 **Link Working Directory** 修改，无需启用恢复功能。
+右键会话 → **Session Files**，在右侧查看固定工作目录。切换 session 标签时目录随之切换，也可通过 **Pin File Tree** 固定当前目录，**Follow Active Session** 恢复跟随。新会话把初始化目录保存为固定根目录；终端后续 `cd` 和 Delete / Restore 都不改变它。旧会话首次使用时自动固定已保存目录或当前活动分屏目录；也可用 **Link Directory** 修改，无需启用恢复功能。
 
-文件单击用 VS Code 原生编辑器打开。目录右键可 **Upload Files / Folders…**，文件右键可 **Download File…**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview Markdown**。目录树内可把文件、文件夹拖入其他目录，拖回根目录行即可移回根目录；从桌面拖入文件或整个文件夹，可直接上传到根目录、子目录或空白区域。标题栏新建始终作用于根目录，目录右键新建作用于该目录。移动不覆盖同名目标，文件夹上传不合并已有目录。
+文件单击用 VS Code 原生编辑器打开。目录右键可 **Upload**，文件右键可 **Download**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview MD**。目录树内可把文件、文件夹拖入其他目录，拖回根目录行即可移回根目录；从桌面拖入文件或整个文件夹，可直接上传到根目录、子目录或空白区域。标题栏新建始终作用于根目录，目录右键新建作用于该目录。移动不覆盖同名目标，文件夹上传不合并已有目录。
 
 HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载资源后自动重载；HTML 和 Markdown 每次预览都在当前编辑器分组新建独立标签，切换 session 不覆盖旧预览；不会自动分屏，Reload Window 后保留布局。Markdown 直接使用 VS Code 自带预览。
 
-远端 Linux/macOS 需 Python 3；上传下载复用本地 OpenSSH，推荐 OpenSSH 9+ 的 SFTP 传输。上传覆盖同名文件前会确认，传输有进度和取消入口。保存先写临时文件再原子替换，失败不留下半截目标文件；单文件读取与保存限制 16 MiB。目录树右键支持 **Copy Absolute Path**（远端绝对路径）、**Copy Relative Path**（相对当前 session 根目录）、**Rename…** 和 **Delete Permanently…**。永久删除必须再次确认，删除文件夹包含全部内容；工作根目录不可重命名或删除。不跟随子级符号链接，不代理开发服务器/HMR。可关闭 `remoteAgentSessions.sessionFilesEnabled` 停用此功能。
+远端 Linux/macOS 需 Python 3；上传下载复用本地 OpenSSH，推荐 OpenSSH 9+ 的 SFTP 传输。上传覆盖同名文件前会确认，传输有进度和取消入口。保存先写临时文件再原子替换，失败不留下半截目标文件；单文件读取与保存限制 16 MiB。目录树右键支持 **Copy Full Path**（远端绝对路径）、**Copy Relative Path**（相对当前 session 根目录）、**Rename** 和 **Delete Permanently**。永久删除必须再次确认，删除文件夹包含全部内容；工作根目录不可重命名或删除。不跟随子级符号链接，不代理开发服务器/HMR。可关闭 `remoteAgentSessions.sessionFilesEnabled` 停用此功能。
 
 ## 从停止，到继续
 
-**Stop Session (Keep Recovery Record)** 保存后停止会话并保留恢复记录。打开 **Stopped / Recoverable**，点击对应会话，即可按快照重建。
+**Stop Session** 保存后停止会话并保留恢复记录。打开 **Stopped / Recoverable**，点击对应会话，即可按快照重建。
 
 ![停止后保留恢复记录](media/showcase/02-recoverable.png)
 
@@ -47,7 +47,7 @@ HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载
 2. 在活动栏打开 TmuxDock，点击 **Add SSH Host**，输入已能通过 SSH 连接的别名。
 3. 点击现有会话，或创建 Codex、Claude、Shell 会话。Agent CLI 需安装在远端。
 
-关闭终端标签只断开连接，远端 tmux 继续运行；**Stop Session** 保存后停止；**Restore** 重建；**Remove Recovery Record** 永久移除本地记录、不停止远端进程。
+关闭终端标签只断开连接，远端 tmux 继续运行；**Stop Session** 保存后停止；**Restore** 重建；**Remove Record** 永久移除本地记录、不停止远端进程。
 
 ## 本地控制，远端执行
 

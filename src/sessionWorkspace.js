@@ -518,7 +518,7 @@ class SessionWorkspace {
       : !c
         ? "Select a TmuxDock session to browse its working directory."
         : !c.root
-          ? "This older session has no fixed root. Use Link Working Directory to choose it."
+          ? "This older session has no fixed root. Use Link Directory to choose it."
           : this.offline
             ? "Unavailable: " + this.offline
             : undefined;
@@ -597,10 +597,10 @@ class SessionWorkspace {
     if (!c.root)
       return [
         {
-          message: "Link Working Directory…",
+          message: "Link Directory",
           command: {
             command: "remoteAgentSessions.linkDirectory",
-            title: "Link Working Directory",
+            title: "Link Directory",
           },
         },
       ];

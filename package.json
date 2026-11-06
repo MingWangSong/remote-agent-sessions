@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Your remote work, docked. Manage multi-host tmux, Codex and Claude sessions in local VS Code with context-aware recovery.",
-  "version": "3.3.0",
+  "version": "3.3.1",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -76,25 +76,25 @@
       },
       {
         "command": "remoteAgentSessions.editHost",
-        "title": "Edit Host Configuration",
+        "title": "Edit Host",
         "icon": "$(settings-gear)",
         "category": "TmuxDock"
       },
       {
         "command": "remoteAgentSessions.removeHost",
-        "title": "Remove SSH Host",
+        "title": "Remove Host",
         "icon": "$(remove-close)",
         "category": "TmuxDock"
       },
       {
         "command": "remoteAgentSessions.openSshTerminal",
-        "title": "Open SSH Terminal",
+        "title": "SSH Terminal",
         "icon": "$(terminal)",
         "category": "TmuxDock"
       },
       {
         "command": "remoteAgentSessions.openWorkspace",
-        "title": "Open Remote Workspace",
+        "title": "Open Workspace",
         "icon": "$(folder-opened)",
         "category": "TmuxDock"
       },
@@ -118,7 +118,7 @@
       },
       {
         "command": "remoteAgentSessions.create",
-        "title": "New tmux Session",
+        "title": "New Session",
         "icon": "$(new-folder)",
         "category": "TmuxDock"
       },
@@ -148,7 +148,7 @@
       },
       {
         "command": "remoteAgentSessions.delete",
-        "title": "Stop Session (Keep Recovery Record)",
+        "title": "Stop Session",
         "icon": "$(debug-stop)",
         "category": "TmuxDock"
       },
@@ -166,13 +166,13 @@
       },
       {
         "command": "remoteAgentSessions.forget",
-        "title": "Remove Recovery Record",
+        "title": "Remove Record",
         "icon": "$(trash)",
         "category": "TmuxDock"
       },
       {
         "command": "remoteAgentSessions.showDetails",
-        "title": "Show Session Details",
+        "title": "Session Details",
         "icon": "$(info)",
         "category": "TmuxDock"
       },
@@ -190,25 +190,25 @@
       },
       {
         "command": "remoteAgentSessions.resetOrder",
-        "title": "Reset Session Order (Creation Time)",
+        "title": "Reset Order",
         "icon": "$(list-ordered)",
         "category": "TmuxDock"
       },
       {
         "command": "remoteAgentSessions.bindAgentSession",
-        "title": "Bind Original Agent Conversation",
+        "title": "Link Agent History",
         "category": "TmuxDock",
         "icon": "$(link)"
       },
       {
         "command": "remoteAgentSessions.showFiles",
-        "title": "Show Session Files",
+        "title": "Session Files",
         "category": "TmuxDock",
         "icon": "$(folder-opened)"
       },
       {
         "command": "remoteAgentSessions.linkDirectory",
-        "title": "Link Working Directory",
+        "title": "Link Directory",
         "category": "TmuxDock",
         "icon": "$(link)"
       },
@@ -250,31 +250,31 @@
       },
       {
         "command": "remoteAgentSessions.uploadFiles",
-        "title": "Upload Files / Folders\u2026",
+        "title": "Upload",
         "category": "TmuxDock",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "remoteAgentSessions.downloadFile",
-        "title": "Download File\u2026",
+        "title": "Download",
         "category": "TmuxDock",
         "icon": "$(cloud-download)"
       },
       {
         "command": "remoteAgentSessions.previewMarkdown",
-        "title": "Preview Markdown",
+        "title": "Preview MD",
         "category": "TmuxDock",
         "icon": "$(open-preview)"
       },
       {
         "command": "remoteAgentSessions.newFile",
-        "title": "New File\u2026",
+        "title": "New File",
         "category": "TmuxDock",
         "icon": "$(new-file)"
       },
       {
         "command": "remoteAgentSessions.newFolder",
-        "title": "New Folder\u2026",
+        "title": "New Folder",
         "category": "TmuxDock",
         "icon": "$(new-folder)"
       },
@@ -286,7 +286,7 @@
       },
       {
         "command": "remoteAgentSessions.copyFilePath",
-        "title": "Copy Absolute Path",
+        "title": "Copy Full Path",
         "category": "TmuxDock",
         "icon": "$(copy)"
       },
@@ -298,13 +298,13 @@
       },
       {
         "command": "remoteAgentSessions.renameFile",
-        "title": "Rename\u2026",
+        "title": "Rename",
         "category": "TmuxDock",
         "icon": "$(edit)"
       },
       {
         "command": "remoteAgentSessions.deleteFilePermanently",
-        "title": "Delete Permanently\u2026",
+        "title": "Delete Permanently",
         "category": "TmuxDock",
         "icon": "$(trash)"
       }

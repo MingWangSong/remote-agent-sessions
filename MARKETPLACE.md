@@ -20,22 +20,22 @@ TmuxDock turns remote tmux sessions into a workspace you can browse, reconnect t
 
 ## Your Agent and its files, side by side.
 
-Right-click a session and select **Show Session Files** to open its fixed working directory in the native right sidebar. Keep your current theme and file icons, edit files in VS Code's native editor and save them directly to the host, and pin the tree when you want it to stay put.
+Right-click a session and select **Session Files** to open its fixed working directory in the native right sidebar. Keep your current theme and file icons, edit files in VS Code's native editor and save them directly to the host, and pin the tree when you want it to stay put.
 
-- **New File… / New Folder…** create entries in the working root from the toolbar, or a specific directory from its context menu without overwriting existing names. Native Save stages content before atomic replacement.
+- **New File / New Folder** create entries in the working root from the toolbar, or a specific directory from its context menu without overwriting existing names. Native Save stages content before atomic replacement.
 - **Preview HTML** renders linked CSS, JavaScript and images, with automatic reload after remote saves.
-- **Preview Markdown** uses the Markdown renderer already built into VS Code.
-- **Upload Files / Folders… / Download File…** reuse your local OpenSSH client. Drop desktop files or complete folders onto the root or subdirectories to upload. Drag tree entries between directories to move them. Moves reject collisions; folder uploads never merge existing folders. Regular-file replacements ask first; transfers show progress and can be cancelled.
+- **Preview MD** uses the Markdown renderer already built into VS Code.
+- **Upload / Download** reuse your local OpenSSH client. Drop desktop files or complete folders onto the root or subdirectories to upload. Drag tree entries between directories to move them. Moves reject collisions; folder uploads never merge existing folders. Regular-file replacements ask first; transfers show progress and can be cancelled.
 
-Session Files context actions include **Copy Absolute Path**, **Copy Relative Path**, **Rename…**, and **Delete Permanently…**. Relative paths start at the session working root. Permanent deletion requires confirmation and includes all contents of a selected folder; linked roots cannot be renamed or deleted.
+Session Files context actions include **Copy Full Path**, **Copy Relative Path**, **Rename**, and **Delete Permanently**. Relative paths start at the session working root. Permanent deletion requires confirmation and includes all contents of a selected folder; linked roots cannot be renamed or deleted.
 
 Every HTML or Markdown preview opens a new permanent tab in your current editor group. Existing previews stay on their own file when sessions change, and the extension never creates a split automatically.
 
-New sessions retain their initial root across directory changes and recovery. Older sessions automatically freeze their saved or active pane directory on first use; **Link Working Directory** can change it without enabling recovery, even for unmanaged tmux sessions. Files and HTML previews restore after Reload Window. The feature requires Python 3 on the Linux/macOS host; OpenSSH 9+ is recommended for SFTP file transfers. Native reads and saves support files up to 16 MiB; child symlinks and framework dev-server/HMR proxying are outside this first version.
+New sessions retain their initial root across directory changes and recovery. Older sessions automatically freeze their saved or active pane directory on first use; **Link Directory** can change it without enabling recovery, even for unmanaged tmux sessions. Files and HTML previews restore after Reload Window. The feature requires Python 3 on the Linux/macOS host; OpenSSH 9+ is recommended for SFTP file transfers. Native reads and saves support files up to 16 MiB; child symlinks and framework dev-server/HMR proxying are outside this first version.
 
 ## Stop a session. Keep its context.
 
-Before **Stop Session (Keep Recovery Record)** closes a managed tmux workspace, TmuxDock saves its final directories, windows, panes and known Agent conversation links.
+Before **Stop Session** closes a managed tmux workspace, TmuxDock saves its final directories, windows, panes and known Agent conversation links.
 
 ![A stopped session remains available to restore](media/showcase/02-recoverable.png)
 
@@ -48,7 +48,7 @@ Click the entry in **Stopped / Recoverable** to rebuild a new tmux session with 
 | Close terminal tab | Detach the client; remote tmux work continues while the host is running. |
 | Stop Session | Save a recovery snapshot, then stop tmux and its processes. |
 | Restore Session | Rebuild the saved workspace; resume bound Agents according to the restore policy. |
-| Remove Recovery Record | Permanently remove local recovery metadata; leave running remote processes alone. |
+| Remove Record | Permanently remove local recovery metadata; leave running remote processes alone. |
 
 ## Start in three steps
 
