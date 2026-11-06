@@ -85,7 +85,7 @@ exports.run = async (api, controller, check) => {
       );
       assert.ok(source);
       assert.equal(source.languageId, "markdown");
-      assert.ok(
+      await wait(() =>
         vscode.window.tabGroups.all
           .flatMap((g) => g.tabs)
           .some((t) => t.input instanceof vscode.TabInputWebview),
