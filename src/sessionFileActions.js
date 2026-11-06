@@ -178,7 +178,19 @@ class SessionFileActions {
           "Drag local files or folders from Finder or your file manager",
         );
       if (token?.isCancellationRequested) return;
-      return await this.upload(locals, target, token);
+      return await this.upload(
+        locals,
+        {
+          context: c,
+          type: "directory",
+          uri: vscode.Uri.from({
+            scheme: "tmuxdock-remote",
+            authority: c.controller.host.id,
+            path: directory,
+          }),
+        },
+        token,
+      );
     } catch (error) {
       vscode.window.showErrorMessage("TmuxDock files: " + error.message);
       return false;

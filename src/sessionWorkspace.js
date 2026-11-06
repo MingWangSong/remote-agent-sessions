@@ -803,14 +803,15 @@ class SessionWorkspace {
     );
   }
   async uploadFiles(item) {
-    this.actions.target(item);
+    const target = item || this.rootItem();
+    this.actions.target(target);
     const selected = await vscode.window.showOpenDialog({
       canSelectFiles: true,
       canSelectFolders: true,
       canSelectMany: true,
       openLabel: "Upload files or folders",
     });
-    if (selected?.length) return this.actions.upload(selected, item);
+    if (selected?.length) return this.actions.upload(selected, target);
   }
   async downloadFile(item) {
     if (!item?.uri || item.type !== "file")
