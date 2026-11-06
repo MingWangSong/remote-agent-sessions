@@ -81,74 +81,80 @@ class SessionFileActions {
     try {
       const { c, directory } = this.target(target);
       const internal = transfer.get(MIME);
-      if (internal) {
-        const data = JSON.parse(await internal.asString());
-        if (
-          data.hostId !== c.controller.host.id ||
-          data.root !== c.root ||
-          !Array.isArray(data.paths)
-        )
-          throw new Error(
-            "Move files within the same session working directory",
-          );
-        const sources = topPaths([...new Set(data.paths)], (value) => value);
-        const service = this.workspace.service(c.controller);
-        const edit = new vscode.WorkspaceEdit();
-        const destinations = new Set();
-        const planned = [];
-        for (const source of sources) {
-          relative(c.root, source);
-          if (source === c.root || within(source, directory))
-            throw new Error("A directory cannot be moved into itself");
-          const destination = path.join(directory, path.basename(source));
-          if (source === destination) continue;
-          if (destinations.has(destination))
-            throw new Error("Selected files have the same destination name");
-          destinations.add(destination);
-          planned.push({ source, destination });
-        }
-        // Preflight together through the bounded shared channel, before any move.
-        await Promise.all(
-          planned.map(async ({ source, destination }) => {
-            await Promise.all([
-              service.stat(source, c.root),
-              service.stat(destination, c.root).then(
-                () => {
-                  throw new Error(
-                    "A file or directory named " +
-                      path.basename(destination) +
-                      " already exists",
-                  );
-                },
-                (error) => {
-                  if (error.code !== "NotFound") throw error;
-                },
-              ),
-            ]);
-          }),
-        );
-        for (const { source, destination } of planned) {
-          edit.renameFile(
-            vscode.Uri.from({
-              scheme: "tmuxdock-remote",
-              authority: data.hostId,
-              path: source,
-            }),
-            vscode.Uri.from({
-              scheme: "tmuxdock-remote",
-              authority: data.hostId,
-              path: destination,
-            }),
-            { overwrite: false },
-          );
-        }
-        if (token?.isCancellationRequested) return;
+      if (internal)
         return await vscode.window.withProgress(
           {
             location: vscode.ProgressLocation.Notification,
             title: "TmuxDock · Moving files",
           },
           async () => {
+            const data = JSON.parse(await internal.asString());
+            if (
+              data.hostId !== c.controller.host.id ||
+              data.root !== c.root ||
+              !Array.isArray(data.paths)
+            )
+              throw new Error(
+                "Move files within the same session working directory",
+              );
+            const sources = topPaths(
+              [...new Set(data.paths)],
+              (value) => value,
+            );
+            const service = this.workspace.service(c.controller);
+            const edit = new vscode.WorkspaceEdit();
+            const destinations = new Set();
+            const planned = [];
+            for (const source of sources) {
+              relative(c.root, source);
+              if (source === c.root || within(source, directory))
+                throw new Error("A directory cannot be moved into itself");
+              const destination = path.join(directory, path.basename(source));
+              if (source === destination) continue;
+              if (destinations.has(destination))
+                throw new Error(
+                  "Selected files have the same destination name",
+                );
+              destinations.add(destination);
+              planned.push({ source, destination });
+            }
+            // Preflight together through the bounded shared channel, before any move.
+            await Promise.all(
+              planned.map(async ({ source, destination }) => {
+                await Promise.all([
+                  service.stat(source, c.root),
+                  service.stat(destination, c.root).then(
+                    () => {
+                      throw new Error(
+                        "A file or directory named " +
+                          path.basename(destination) +
+                          " already exists",
+                      );
+                    },
+                    (error) => {
+                      if (error.code !== "NotFound") throw error;
+                    },
+                  ),
+                ]);
+              }),
+            );
+            for (const { source, destination } of planned) {
+              edit.renameFile(
+                vscode.Uri.from({
+                  scheme: "tmuxdock-remote",
+                  authority: data.hostId,
+                  path: source,
+                }),
+                vscode.Uri.from({
+                  scheme: "tmuxdock-remote",
+                  authority: data.hostId,
+                  path: destination,
+                }),
+                { overwrite: false },
+              );
+            }
+            if (token?.isCancellationRequested) return;
+            if (!planned.length) return true;
             if (!(await vscode.workspace.applyEdit(edit)))
               throw new Error(
                 "Move was not completed; check the destination and retry",
@@ -156,7 +162,6 @@ class SessionFileActions {
             return true;
           },
         );
-      }
       const locals = [];
       const list = transfer.get("text/uri-list");
       if (list)
