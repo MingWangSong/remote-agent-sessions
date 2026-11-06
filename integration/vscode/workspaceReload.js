@@ -107,10 +107,11 @@ exports.run = async () => {
     // group/tab counts first; compare full identities after revealing them.
     const shape = (groups) =>
       groups.map((g) => ({ column: g.column, count: g.tabs.length }));
-    await wait(
-      () =>
-        JSON.stringify(shape(layout())) === JSON.stringify(shape(state.layout)),
-    );
+    try {
+      await wait(() => JSON.stringify(shape(layout())) === JSON.stringify(shape(state.layout)));
+    } catch (error) {
+      throw new Error(error.message + " " + JSON.stringify({expected:state.layout, actual:layout(), terminalNames:vscode.window.terminals.map(t=>t.name)}));
+    }
     // Native webviews/custom editors deserialize lazily. Reveal the existing
     // restored tabs instead of opening replacements that could mask tab loss.
     const group = vscode.window.tabGroups.activeTabGroup;

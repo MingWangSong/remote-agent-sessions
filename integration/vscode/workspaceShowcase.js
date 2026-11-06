@@ -10,8 +10,8 @@ exports.run = async () => {
   const cdp=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,[resolve,reject]);ws.send(JSON.stringify({id,method,params}));});
   const evaluate=async expression=>(await cdp('Runtime.evaluate',{expression,returnByValue:true})).result?.value;
   const checks=[],captures=[];
-  const capture=async name=>{
-    await vscode.commands.executeCommand('notifications.clearAll');await vscode.commands.executeCommand('notifications.hideToasts');await pause(1100);
+  const capture=async (name, keepMenu=false)=>{
+    if(!keepMenu){await vscode.commands.executeCommand('notifications.clearAll');await vscode.commands.executeCommand('notifications.hideToasts');}await pause(1100);
     await cdp('Runtime.evaluate',{expression:'document.fonts.ready',awaitPromise:true});
     const text=await evaluate('document.body.innerText');
     assert.ok(!/leo-dev|TachyonNexus|alluxio|\/Users\/|1397472492|@qq\.com/i.test(text),'Private information entered the demo workbench');
@@ -42,10 +42,9 @@ exports.run = async () => {
     const stopped=await east.manager.create({title:'saved-workspace',cwd:root});await east.manager.deleteSession(stopped);
     await api.provider.refresh(undefined,false);
     await vscode.commands.executeCommand('workbench.view.extension.remoteAgentSessions');
-    for(const host of api.provider.getChildren()){
-      await api.view.reveal(host,{expand:true,focus:false});
-      for(const group of api.provider.getChildren(host))await api.view.reveal(group,{expand:true,focus:false});
-    }
+    // Hosts and Running groups default to expanded. Wait for their render;
+    // explicit reveal of newly replaced group objects races the tree refresh.
+    await wait(async()=>/atlas-codex/.test(await evaluate('document.body.innerText')),'Session tree did not render');
     const files=api.sessionWorkspace;
     const owner=east.manager.entries.find(e=>e.id===records[0].id);files.select(east,owner,true);
     await vscode.commands.executeCommand('remoteAgentSessions.showFiles');
@@ -78,7 +77,7 @@ exports.run = async () => {
     await cdp('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...bounds});
     await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...bounds});
     await wait(async()=>/Copy Full Path/.test(await evaluate('document.body.innerText')),'Native file context menu did not open');
-    await capture('05-file-operations');
+    await capture('05-file-operations',true);
     await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
     await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
     const runbook=(await children(docs)).find(e=>e.name==='RUNBOOK.md');
