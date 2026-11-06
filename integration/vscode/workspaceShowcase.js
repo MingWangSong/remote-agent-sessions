@@ -8,7 +8,7 @@ exports.run = async () => {
   const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise(r=>ws.addEventListener('open',r,{once:true}));
   let seq=0;const pending=new Map();ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(pending.has(m.id)){const [resolve,reject]=pending.get(m.id);pending.delete(m.id);m.error?reject(Error(JSON.stringify(m.error))):resolve(m.result);}});
   const cdp=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,[resolve,reject]);ws.send(JSON.stringify({id,method,params}));});
-  const evaluate=async expression=>(await cdp('Runtime.evaluate',{expression,returnByValue:true})).result?.value;
+  const evaluate=async expression=>{const response=await cdp('Runtime.evaluate',{expression,returnByValue:true});if(response.exceptionDetails)throw Error(response.exceptionDetails.exception?.description||response.exceptionDetails.text);return response.result?.value;};
   const checks=[],captures=[];
   const capture=async (name, keepMenu=false)=>{
     if(!keepMenu){await vscode.commands.executeCommand('notifications.clearAll');await vscode.commands.executeCommand('notifications.hideToasts');}await pause(1100);
@@ -73,7 +73,7 @@ exports.run = async () => {
     checks.push('Native editing saves through the file channel; complete folder upload uses real OpenSSH SFTP');
     const kit=(await children(imports)).find(e=>e.name==='release-kit');await files.view.reveal(kit,{expand:true,select:true,focus:false});
     await pause(300);
-    const bounds=await evaluate(`(()=>{const e=[...document.querySelectorAll('[role="treeitem"]')].find(e=>e.getAttribute('aria-label')?.startsWith('release-kit'));if(!e)throw Error('Uploaded folder row not visible');const r=e.getBoundingClientRect();return {x:r.x+Math.min(100,r.width/2),y:r.y+r.height/2};})()`);
+    const bounds=await evaluate(`(()=>{const rows=[...document.querySelectorAll('[role="treeitem"],.monaco-list-row')];const e=rows.find(e=>e.querySelector('.label-name')?.textContent==='release-kit'||e.textContent.trim().startsWith('release-kit'));if(!e)throw Error('Uploaded folder row not visible: '+JSON.stringify(rows.map(e=>({aria:e.getAttribute('aria-label'),text:e.textContent.slice(0,90)}))));const r=e.getBoundingClientRect();return {x:r.x+Math.min(100,r.width/2),y:r.y+r.height/2};})()`);
     await cdp('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...bounds});
     await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...bounds});
     await wait(async()=>/Copy Full Path/.test(await evaluate('document.body.innerText')),'Native file context menu did not open');
