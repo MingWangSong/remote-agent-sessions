@@ -4,7 +4,7 @@
 
 **把多台主机上的 tmux、Codex 和 Claude，收进一个本地 VS Code 工作区。**
 
-[安装插件](https://marketplace.visualstudio.com/items?itemName=mingwangsong.remote-agent-sessions) · [English](README.md) · [完整指南](docs/guide.zh-CN.md) · [更新记录](CHANGELOG.md)
+[安装插件](https://marketplace.visualstudio.com/items?itemName=mingwangsong.remote-agent-sessions) · [English](README.md) · [完整指南](docs/guide.zh-CN.md) · [全部工具](docs/commands.md) · [更新记录](CHANGELOG.md)
 
 ![真实多主机会话工作区](media/showcase/01-workspace.png)
 
@@ -21,15 +21,49 @@
 | 文件与实时预览 | 上传、下载文件；HTML 资源变化自动刷新；Markdown 复用 VS Code 自带预览。 |
 | 重载保留标签 | 使用 VS Code 原生终端持久化，恢复标签及主机关联。 |
 
-## Agent、文件、预览放在一个窗口
+## 文件与实时输出，同窗完成
 
-右键会话 → **Session Files**，在右侧查看固定工作目录。切换 session 标签时目录随之切换，也可通过 **Pin File Tree** 固定当前目录，**Follow Active Session** 恢复跟随。新会话把初始化目录保存为固定根目录；终端后续 `cd` 和 Delete / Restore 都不改变它。旧会话首次使用时自动固定已保存目录或当前活动分屏目录；也可用 **Link Directory** 修改，无需启用恢复功能。
+### 看结果，不必再开一个远程窗口
 
-文件单击用 VS Code 原生编辑器打开。目录右键可 **Upload**，文件右键可 **Download**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview MD**。目录树内可把文件、文件夹拖入其他目录，拖回根目录行即可移回根目录；从桌面拖入文件或整个文件夹，可直接上传到根目录、子目录或空白区域。标题栏新建始终作用于根目录，目录右键新建作用于该目录。移动不覆盖同名目标，文件夹上传不合并已有目录。
+![真实 HTML 预览与右侧原生工作目录树](media/showcase/04-live-workspace.png)
 
-HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载资源后自动重载；HTML 和 Markdown 每次预览都在当前编辑器分组新建独立标签，切换 session 不覆盖旧预览；不会自动分屏，Reload Window 后保留布局。Markdown 直接使用 VS Code 自带预览。
+右键会话 → **Session Files**，在右侧原生目录树查看固定工作根目录，沿用你的文件图标主题。**Preview HTML** 渲染同目录的 CSS、JS、图片和根相对路径资源，已请求资源发生变化后自动刷新。图中页面的 generation 02 来自一次实际保存后的自动更新。
 
-远端 Linux/macOS 需 Python 3；上传下载复用本地 OpenSSH，推荐 OpenSSH 9+ 的 SFTP 传输。上传覆盖同名文件前会确认，传输有进度和取消入口。保存先写临时文件再原子替换，失败不留下半截目标文件；单文件读取与保存限制 16 MiB。目录树右键支持 **Copy Full Path**（远端绝对路径）、**Copy Relative Path**（相对当前 session 根目录）、**Rename** 和 **Delete Permanently**。永久删除必须再次确认，删除文件夹包含全部内容；工作根目录不可重命名或删除。不跟随子级符号链接，不代理开发服务器/HMR。可关闭 `remoteAgentSessions.sessionFilesEnabled` 停用此功能。
+新会话保留初始化目录，终端 `cd` 或 Stop / Restore 不改变它；旧会话首次查看时固定已保存或当前活动分屏目录，也可用 **Link Directory** 修改，无需先启用恢复。**Pin File Tree** 固定当前树，**Follow Active Session** 恢复跟随会话标签。
+
+### 文件夹直接上传，文件原地编辑
+
+![实际文件保存、完整文件夹上传与精简右键菜单](media/showcase/05-file-operations.png)
+
+- **新建与保存：**标题栏 New File / New Folder 作用于工作根目录，目录右键作用于该目录。单击文件进入 VS Code 原生编辑器，保存直接写回主机。
+- **传输与移动：**从桌面拖入文件或完整文件夹，可上传到根目录、子目录或空白区域；也可使用 Upload / Download。目录树内拖动用于移动，拖回根目录行即可移回。上传有进度和取消入口。
+- **路径与维护：**Copy Full Path 复制远端绝对路径；Copy Relative Path 相对当前 session 根目录，根目录本身为 `.`。Rename 拒绝同名目标；Delete Permanently 必须二次确认，提示主机、完整路径与文件夹全部内容，工作根目录禁止重命名和删除。
+
+文件夹上传不合并已有目录，普通文件覆盖先确认。传输完成后才提交目标；新建和保存复用持久文件通道。
+
+### 文档标签各自保留，布局由你决定
+
+![独立 HTML 和原生 Markdown 预览标签，不自动分屏](media/showcase/06-document-previews.png)
+
+**Preview MD** 复用 VS Code 自带 Markdown 渲染。HTML / Markdown 每次预览都新建永久标签，同一文件也可多次打开；切换 session 不替换旧预览。插件使用当前编辑器分组，不自动创建分屏；需要时由你手动排列。重命名或移动会更新所属预览，Reload Window 恢复布局与关联。
+
+远端文件功能需要 Linux/macOS 的 Python 3，本机需 OpenSSH，推荐 9+。原生读取/保存限制 16 MiB，HTML 单资源限制 128 MiB；不跟随子级符号链接，不代理开发服务器/HMR。HTML 脚本要求可信工作区，本地预览服务只监听回环地址。可通过 `remoteAgentSessions.sessionFilesEnabled=false` 停用。
+
+*新增图片来自隔离配置和虚构项目，实际运行 tmux、文件通道与 OpenSSH SFTP；Agent 图标仅用于类型展示，没有模型请求、真实服务器、私有代码或对话。[截图来源](docs/showcase/README.md)。原有会话恢复图片继续复用。*
+
+## 全部工具入口
+
+[完整工具索引](docs/commands.md) 对照当前插件清单，列出全部 **40 个命令**、入口和作用，包含 8 项机器级配置：
+
+| 模块 | 工具 |
+| --- | --- |
+| 主机 | 添加、编辑、移除、刷新、SSH 终端、远程工作区。 |
+| 会话 | 创建、连接与标签复用、重命名、详情、备注、顺序重置。 |
+| 恢复 | 启用恢复、停止、恢复、关联原 Agent 历史、恢复命令、移除记录。 |
+| 文件 | 目录树、新建文件/目录、编辑保存、完整/相对路径、重命名、二次确认的永久删除。 |
+| 传输与预览 | 文件/文件夹上传、文件下载、拖动移动、实时 HTML、原生 Markdown、刷新、浏览器打开。 |
+| 连续工作 | 目录跟随/固定、独立文档标签、Reload Window 后恢复关联。 |
+| 备份迁移 | 导出/导入恢复记录、导入 1.x 元数据。 |
 
 ## 从停止，到继续
 

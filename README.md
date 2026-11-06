@@ -6,93 +6,128 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-ae9bff?style=flat-square&amp;labelColor=111827" alt="MIT license"></a>
 </p>
 
-<p align="center"><b>A persistent remote workspace for the way you actually build.</b><br>Multi-host tmux. Distinct Agent identities. Recovery with context.</p>
-<p align="center"><a href="README.zh-CN.md">简体中文</a> · <a href="https://marketplace.visualstudio.com/items?itemName=mingwangsong.remote-agent-sessions">Install extension</a> · <a href="docs/guide.zh-CN.md">User guide</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
+<p align="center"><b>Your Agents. Their files. The live output. One local VS Code workspace.</b><br>Remote tmux control · native file editing · HTML and Markdown previews · explicit recovery</p>
+<p align="center"><a href="README.zh-CN.md">简体中文</a> · <a href="https://marketplace.visualstudio.com/items?itemName=mingwangsong.remote-agent-sessions">Install</a> · <a href="docs/commands.md">All 40 tools</a> · <a href="docs/guide.zh-CN.md">User guide</a> · <a href="CONTRIBUTING.md">Contribute</a></p>
 
-## Keep the work. Lose the terminal sprawl.
+## Keep the work. Lose the window shuffle.
 
-TmuxDock brings remote tmux sessions into your **local VS Code**. Browse multiple SSH hosts, open sessions as terminal tabs, and keep Codex, Claude and ordinary shell work recognizable at a glance. Closing a tab disconnects the client; tmux keeps the remote processes running while the host remains available.
+TmuxDock brings remote tmux sessions into **local VS Code**. Dock Codex, Claude and shell terminals across SSH hosts, browse the session's working files beside them, and inspect rendered output in the same window.
 
-When you deliberately stop a managed workspace, TmuxDock saves its final directories, pane layout and known Agent conversation IDs before stopping tmux. Restore builds a new tmux session with the same name and resumes the original bound conversation.
+Closing a terminal tab detaches the client; tmux keeps the remote processes running while its host remains available. Deliberately stopping a managed session saves its final directories, layout and known Agent conversation IDs for a later rebuild.
 
-![Real VS Code workspace with multiple hosts, distinct Agent icons and separated running and recoverable sessions](media/showcase/01-workspace.png)
+![Existing session control: multiple hosts, official Agent marks, compact tabs and separated live/recoverable groups](media/showcase/01-workspace.png)
 
-*Real extension UI and real tmux, captured in an isolated demo profile. Host aliases and task names are synthetic. Agent icons use demo configuration; the capture starts no AI model or real conversation.*
+## The control surface
 
-## Built around the session lifecycle
-
-| Capability | What it changes |
+| Module | Available tools and behavior |
 | :--- | :--- |
-| **One dock, multiple hosts** | Discover existing tmux sessions through your local OpenSSH configuration. No per-host extension install required. |
-| **Recognizable Agent tabs** | Official Codex and Claude marks, compact session titles, host identity in the status bar. |
-| **Stable navigation** | Creation-time ordering, persistent drag ordering, separate Running and Stopped / Recoverable groups. |
-| **Visible operations** | Progress and queue feedback for slow SSH requests; already-open terminals are reused locally. |
-| **Context-aware recovery** | Rebuild saved windows and panes in their last directories; resume known conversations by exact ID. |
-| **Session files beside your Agents** | Native right-sidebar tree, theme-aware file icons, native editing and built-in Markdown previews. |
-| **Live HTML and file transfers** | Preview HTML with relative resources and automatic reload; explicitly upload or download through OpenSSH. |
-| **Reload continuity** | Preserve native terminal tabs and reconnect their host/session associations after Reload Window. |
+| **Hosts** | Add, edit and remove SSH aliases; refresh discovery; open an SSH terminal or remote workspace. |
+| **Sessions** | Create Codex, Claude, shell or custom-command sessions; attach/reuse tabs; rename; inspect details and notes. |
+| **Recovery** | Enable snapshots for existing sessions; stop with saved context; restore; link original Agent history; edit restore commands or remove records. |
+| **Navigation** | Creation-time ordering, persistent session drag ordering, separate live/recoverable groups, compact Agent icons and host-aware status. |
+| **Files** | Native secondary-sidebar tree and file icons; new files/folders; edit/save; rename; copy full/relative paths; confirmed permanent deletion. |
+| **Transfers** | Drop local files or complete folders onto a root/subdirectory to upload; use Upload/Download; drag tree entries to move them. |
+| **Previews** | Live static HTML with CSS, JS and assets; VS Code's native Markdown renderer; independent permanent tabs in the current editor group. |
+| **Continuity** | Follow or pin the file tree; keep the initial working root fixed; restore terminal, file and preview associations after Reload Window. |
+| **Portability** | Export/import local recovery backups; import legacy 1.x metadata. |
 
-## Files and previews in the same window
+The [complete tool reference](docs/commands.md) lists every command ID, its entry point and effect, plus all machine-scoped settings. Existing session-control and recovery examples below remain the original demo captures; the gallery that follows covers the newer file workflow.
 
-Right-click a session → **Session Files**. Its fixed working root appears in the right sidebar using VS Code's native tree and your file icon theme. Switching session tabs follows their directory; **Pin File Tree** pins the current tree; **Follow Active Session** resumes following. The initial root stays fixed even when a terminal changes directory or a stopped session is restored.
+## Files / live output
 
-Click a file to edit it in the native editor and save directly to the host. Use **New File / New Folder** in the tree toolbar for the root, or in a directory context menu for that directory; existing names are never overwritten by creation. The small context menu offers **Upload**, **Download**, **Preview HTML** or **Preview MD**, as appropriate. Markdown uses VS Code's built-in preview. HTML previews load CSS, scripts, images and root-relative resources, then reload when requested files change. Every HTML or Markdown preview opens in a separate permanent tab in the current editor group, including repeated previews of the same file. Switching sessions never replaces those previews. Only manually arranging tabs creates splits; Reload Window restores their layout.
+### Inspect the result beside the task
 
-Session Files context actions include **Copy Full Path**, **Copy Relative Path**, **Rename**, and **Delete Permanently**. Relative paths start at the session working root. Permanent deletion requires confirmation and includes all contents of a selected folder; linked roots cannot be renamed or deleted.
+![Real VS Code HTML preview with synthetic project files in the native Session Files tree](media/showcase/04-live-workspace.png)
 
-These file features require Python 3 on the Linux/macOS host. Drag tree files/folders onto another directory to move them, or onto the root row to move them back. Drop local files or complete folders from your desktop onto the root, any subdirectory or empty tree space to upload. Moves reject collisions; folder uploads never merge existing directories. Transfers reuse local OpenSSH SFTP, existing SSH options and connection multiplexing. Uploads ask before replacing a same-name file and stage it before committing. Saves use temporary-file staging and atomic replacement through the shared file channel; reads and saves are limited to 16 MiB per file. Older sessions use their saved or active pane directory on first use, then keep that root fixed. **Link Directory** can change it without enabling recovery, including for unmanaged tmux sessions.
+**Session Files** opens the session's fixed root in the native right sidebar. Preview a report or prototype without opening a second remote window. HTML resolves linked resources inside the root and reloads when requested files change. The image above was captured after a real saved JSON update changed the page to generation 02.
 
-The first version supports static HTML, not a framework dev-server/HMR proxy. It does not follow child symlinks or duplicate Explorer's Git and Timeline features. Expanded folders and open documents are watched over one persistent SSH file channel; polling pauses when idle and backs off on failures. Disable it with `remoteAgentSessions.sessionFilesEnabled`.
+New sessions retain their initial root even after a terminal `cd` or Stop/Restore. Older sessions freeze their saved or active pane directory on first use; **Link Directory** can change it without enabling recovery. **Pin File Tree** and **Follow Active Session** control whether the tree follows tab changes.
+
+### Move the files, keep the context
+
+![Actual file editing, recursively uploaded release-kit folder and compact native file context menu](media/showcase/05-file-operations.png)
+
+- **Create and edit:** root toolbar actions create at the working root; directory context actions create in that directory. Native Save writes back through the shared file channel.
+- **Transfer and move:** drop desktop files/folders onto a root, subdirectory or empty tree space to upload. Drag tree entries into another directory to move them; drag back onto the root row to move back. Upload and Download remain available as explicit actions.
+- **Keep intent clear:** Copy Full Path returns the remote absolute path; Copy Relative Path uses the session root (`.` for the root itself). Rename rejects collisions. Delete Permanently shows a second confirmation with the full target path; linked roots and their ancestors are protected.
+
+Folder uploads preserve the directory structure and never merge an existing target folder. Regular-file uploads ask before replacement, stage the transfer before commit and offer cancellation. Child symbolic links are not followed.
+
+### Let documents stay open
+
+![Independent HTML and native Markdown preview tabs in one editor group, with the remote working tree still visible](media/showcase/06-document-previews.png)
+
+Every explicit HTML or Markdown preview gets its own permanent tab, including repeated opens of the same file. Switching sessions does not replace a preview. TmuxDock uses the active editor group; it creates no split automatically. Rename/move retargets its owned previews, and Reload Window restores their associations and layout.
+
+<details>
+<summary><b>Requirements and boundaries for files</b></summary>
+
+| Requirement / limit | Detail |
+| :--- | :--- |
+| Remote runtime | Python 3 on Linux or macOS; no remote VS Code Server or separately installed web service required. |
+| Local transfer tools | OpenSSH `sftp` / `scp`; OpenSSH 9+ recommended. Existing SSH config and host-key checks remain in use. |
+| Editor reads and saves | Up to 16 MiB per file; save stages content, preserves permission bits and detects changes made during the save. |
+| HTML resources | Static HTML, linked CSS/JS/images and root-relative resources; up to 128 MiB per resource. Not a framework dev-server/HMR proxy. |
+| Preview trust | HTML scripts require a trusted VS Code workspace. Preview HTTP listeners bind only to local loopback. |
+| File watching | Shared, bounded polling of expanded directories, open documents and requested preview resources; pauses when idle and backs off after failures. |
+| Disable files | Set `remoteAgentSessions.sessionFilesEnabled` to `false`. |
+
+</details>
+
+*New images: actual extension UI, a disposable profile, synthetic hosts/project documents, isolated tmux and real OpenSSH SFTP against a local fixture. Agent marks identify demo session types; no model or private conversation is used. [Capture provenance](docs/showcase/README.md).*
 
 ## From stopped to working again
 
-**1 · Save before stopping.** Stop Session retains a recovery record. A snapshot or conversation verification failure leaves the running session intact.
+**Save before stopping.** Stop Session retains a recovery record. A snapshot or conversation verification failure leaves the running session intact.
 
-![Deleted shell session retained in Stopped / Recoverable](media/showcase/02-recoverable.png)
+![Original demo: stopped shell session retained in Stopped / Recoverable](media/showcase/02-recoverable.png)
 
-**2 · Restore the workspace.** Select the saved session to recreate its tmux name, windows, panes and working directories. Bound Codex / Claude sessions use their original conversation IDs; custom commands follow your restore policy.
+**Restore the workspace.** Select the saved session to recreate its tmux name, windows, panes and working directories. Bound Codex / Claude sessions use their original conversation IDs; custom commands follow your restore policy.
 
-![Restored shell workspace showing its session name and saved directory](media/showcase/03-restored.png)
+![Original demo: restored shell workspace showing the same session name and saved directory](media/showcase/03-restored.png)
 
-*The screenshots demonstrate the shell Delete → Restore path. Exact Agent-ID recovery is separately tested with isolated CLI fixtures, without model requests. Recovery rebuilds a workspace; it does not restore process memory or recreate deleted Agent history.*
+*These existing captures demonstrate shell Stop → Restore. Recovery rebuilds a workspace; it does not restore process memory or recreate deleted CLI history. Exact Agent-ID recovery is tested with isolated CLI fixtures, without model requests.*
 
 ## Get started
 
-**Requirements:** VS Code 1.106+, local OpenSSH, a reachable SSH host with tmux 3.2+. Install the relevant Codex or Claude CLI on that host for Agent work. Git is optional for repository metadata.
+**Requirements:** VS Code 1.106+, local OpenSSH and a reachable host with tmux 3.2+. For Agent sessions, install that CLI on the host. Git is optional for repository metadata.
 
 ```sh
 code --install-extension mingwangsong.remote-agent-sessions
 ```
 
-1. Open TmuxDock in the activity bar and select **Add SSH Host**.
-2. Enter an SSH alias already usable with `ssh your-alias`.
-3. Click an existing session, or create a named Codex, Claude or shell session.
-4. Close a terminal to detach. Use **Stop Session** to stop and save, **Restore Session** to rebuild, and **Remove Record** to permanently remove local recovery metadata.
+1. Open TmuxDock and select **Add SSH Host**. Enter an alias already usable with `ssh your-alias`.
+2. Click an existing session, or create a named Codex, Claude or shell session.
+3. Select **Session Files** to browse its root; open or preview a file in the same window.
+
+Close a terminal tab to detach. **Stop Session** saves and stops; **Restore Session** rebuilds; **Remove Record** removes local recovery metadata without stopping a running remote process. These are separate from permanent file deletion.
 
 <details>
-<summary><b>Recovery behavior worth knowing</b></summary>
+<summary><b>Recovery behavior</b></summary>
 
-- New built-in Agent sessions are initialized with a known conversation ID and the final session name. Original CLI history must still exist remotely.
-- Legacy records without an ID need an explicit original-conversation binding. Codex history can be searched by title, directory and date; a similar name never causes automatic binding.
-- A missing directory or conversation causes a clear error. TmuxDock does not guess with `--last` or silently replace a missing conversation.
-- `restoreCommands=never` rebuilds shells only. The default `ask` policy resumes verified bound Agents directly and asks about other commands.
-- Reload Window relies on VS Code native terminal persistence. Full application restart behavior can vary with VS Code's terminal revival support; reconnect from the sidebar if necessary.
+- New built-in Agent sessions receive a known conversation ID and the final tmux name. The original CLI history must still exist remotely.
+- Older records without an ID need an explicit link to the original history. Codex history can be searched by title, directory and date; similar names never cause automatic binding.
+- Missing directories or conversations produce an error; TmuxDock does not guess with `--last` or silently create a replacement conversation.
+- `restoreCommands=never` rebuilds shells only. The default `ask` policy resumes verified bound Agents directly and asks about custom commands.
+- Reload Window uses VS Code native persistence. Full application restart can behave differently; reconnect from the session sidebar when necessary.
 
 </details>
 
 ## Small control plane. Real remote processes.
 
 ```text
-Local VS Code                         SSH host
-┌──────────────────────┐   OpenSSH    ┌──────────────────────┐
-│ TmuxDock UI extension│ ───────────► │ tmux                 │
-│ host + recovery data │              │ Codex · Claude · sh  │
-└──────────────────────┘              └──────────────────────┘
+Local VS Code                               Your SSH host
+┌────────────────────────────┐   OpenSSH     ┌──────────────────────────┐
+│ Session tree + terminal tabs│ ────────────► │ tmux / Codex / Claude / sh│
+│ Native files + editor      │ ◄───────────► │ Python file channel      │
+│ HTML / Markdown previews   │   SFTP / SCP  │ Working directories      │
+│ Local recovery metadata    │              │ Original CLI histories   │
+└────────────────────────────┘              └──────────────────────────┘
 ```
 
-TmuxDock runs in the local UI extension host and uses your existing SSH config and agent. It does not store SSH passwords or private keys, bypass host-key checks, or require VS Code Server for session discovery. Recovery metadata stays in local extension storage; CLI transcripts stay with the CLI on the remote host. Export/import supports moving recovery records between installations.
+The extension runs in the **local UI extension host** and reuses your SSH configuration and agent. It stores recovery metadata locally, not SSH passwords, private keys or full conversation transcripts. HTML uses a root-scoped local preview server; file operations and watching share a persistent SSH channel per host.
 
-TmuxDock manages Agent **CLI sessions inside tmux**. It does not control official Agent extensions' chat webviews. It does not provide cloud sync or full terminal-output recording. See the [user guide](docs/guide.zh-CN.md) for settings, migration and operational details.
+TmuxDock manages Agent **CLI sessions in tmux**. It does not control official Agent chat webviews, record full terminal output, provide cloud sync or reproduce Explorer's Git and Timeline features.
 
 ## Develop with confidence
 
@@ -106,8 +141,10 @@ npm run package
 npm run verify:package
 ```
 
-Tests use temporary directories and isolated tmux sockets. Agent recovery fixtures make no model requests. CI covers Ubuntu 22.04, Ubuntu 24.04 and macOS; Linux also runs actual VS Code acceptance, native Markdown, HTML rendering, icon and window-reload checks under Xvfb. Local macOS GUI tests are disabled by default so background development does not interrupt your desktop. [Validation evidence](docs/evidence/README.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
+Tests use temporary files and isolated tmux sockets. CI covers Ubuntu 22.04, Ubuntu 24.04 and macOS; Linux runs native VS Code acceptance, rendering, icon and reload checks under Xvfb. Local macOS GUI tests are disabled by default. The separate [showcase workflow](.github/workflows/showcase.yml) captures only synthetic fixtures.
 
-[Report a bug or propose an improvement](https://github.com/MingWangSong/remote-agent-sessions/issues). Include the extension version, local OS, remote tmux version and a sanitized reproduction. Never include credentials or private conversation transcripts.
+[All tools](docs/commands.md) · [User guide](docs/guide.zh-CN.md) · [Validation evidence](docs/evidence/README.md) · [Contributing](CONTRIBUTING.md) · [Changelog](CHANGELOG.md)
 
-MIT licensed. Codex / OpenAI and Claude marks belong to their respective owners; their use identifies compatible CLI sessions and does not imply endorsement.
+[Report an issue](https://github.com/MingWangSong/remote-agent-sessions/issues) with the extension version, local OS, remote tmux version and a sanitized reproduction. Never include credentials or private conversation transcripts.
+
+MIT licensed. Codex / OpenAI and Claude marks identify compatible tools; their use does not imply endorsement.

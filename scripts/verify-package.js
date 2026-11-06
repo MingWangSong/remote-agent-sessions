@@ -38,7 +38,12 @@ const run = promisify(execFile);
   assert.ok(readme.includes('Your remote work, docked.'), 'Dedicated Marketplace README is missing');
   assert.ok(!readme.includes('Develop with confidence'), 'GitHub copy leaked into Marketplace README');
   const images = [...readme.matchAll(/!\[[^\]]*\]\(([^)]+)\)/g)].map(match => match[1]);
-  assert.equal(images.length, 4, 'Marketplace needs its hero and three real screenshots');
+  assert.equal(images.length, 7, 'Marketplace needs the existing gallery and three new workspace captures');
+  assert.equal(new Set(images).size, 7, 'Do not repeat gallery images');
+  for (const name of ['04-live-workspace.png','05-file-operations.png','06-document-previews.png']) {
+    assert.ok(images.some(url => url.endsWith('/'+name)), 'Missing new feature capture '+name);
+    assert.ok(files.includes('extension/media/showcase/'+name), 'Capture missing from VSIX '+name);
+  }
   assert.ok(images.every(url => url.startsWith('https://') && url.endsWith('.png')), 'Marketplace images must be HTTPS PNGs');
   for(const dependency of ['proper-lockfile','graceful-fs','retry','signal-exit']) {
     assert.ok(files.includes('extension/node_modules/'+dependency+'/package.json'),'Missing runtime dependency '+dependency);

@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.2 — 2026-11-06
+
+- Refresh the GitHub overview and dedicated Marketplace copy with a dark, technical gallery for session files, native editing, recursive uploads and independent previews. Reuse the original session/recovery images.
+- Document all 40 commands and 8 machine-scoped settings; add screenshot provenance and a reproducible Linux/Xvfb capture workflow with synthetic data and real tmux/SFTP.
+- Pin Marketplace images to the release tag and verify all seven gallery images in the packaged extension.
+- Wait for a fully attached, named terminal before taking window-reload test checkpoints, retaining the complete layout and persistence assertions.
+
 ## 3.3.1 — 2026-11-06
 
 - Remove ellipses from file context actions and shorten file, session and host menu labels. Keep command IDs, operation behavior and permanent-delete confirmation unchanged.
