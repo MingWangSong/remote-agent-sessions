@@ -16,6 +16,7 @@ function validateRecords(records) {
         typeof r.cwd !== 'string' || !path.isAbsolute(r.cwd) || !Array.isArray(r.windows)) {
       throw new Error('Invalid session record; database has not been modified');
     }
+    for (const key of ['workspaceRoot','lastCwd']) if (r[key] !== undefined && (typeof r[key] !== 'string' || !r[key].startsWith('/') || /[\x00\r\n]/.test(r[key]))) throw new Error('Invalid workspace directory');
     if (ids.has(r.id) || names.has(r.tmuxSession)) throw new Error('Duplicate session in database');
     ids.add(r.id); names.add(r.tmuxSession);
     if (r.events !== undefined && !Array.isArray(r.events)) throw new Error('Invalid event history');

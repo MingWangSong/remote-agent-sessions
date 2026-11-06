@@ -17,10 +17,12 @@ const { terminalTitle, bannerText } = require('./terminalTitle');
 const { AgentSessions, builtinAgent, needsAgentBinding, UUID } = require('./agentSessions');
 const { TERMINAL_CONTEXT, TerminalConnections, terminalMetadata, guardedAttachScript } = require('./terminalPersistence');
 const { chooseCodexConversation } = require('./conversationPicker');
+const { SessionWorkspace } = require('./sessionWorkspace');
 
 const terminals = new Map();
 const terminalContexts = new Map();
 let terminalStatus;
+let sessionWorkspace;
 let syncTreeSelection = () => {};
 let statusSyncTimer;
 let lastSelectedEditorTab;
@@ -51,6 +53,7 @@ function updateTerminalStatus(terminal = vscode.window.activeTerminal) {
   const context = terminalContexts.get(terminal);
   if (!context) { terminalStatus.text = ''; terminalStatus.hide(); return; }
   const { controller, entry } = context;
+  sessionWorkspace?.select(controller,entry);
   terminalStatus.text = `$(remote) ${controller.host.label}`;
   terminalStatus.tooltip = buildTooltip(controller, entry);
   terminalStatus.command = { command: 'remoteAgentSessions.showDetails', title: 'Show Session Details',
@@ -310,6 +313,8 @@ async function activate(context) {
   };
 
   const provider = new MultiHostTreeProvider(context, registry, configuration, updateStatus);
+  sessionWorkspace = new SessionWorkspace(context,provider,chooseRemoteWorkingDirectory);
+  context.subscriptions.push({dispose:()=>{sessionWorkspace=undefined;}});
   const reconnecting = new Map();
   let controllersReady = false;
   reconnectTerminal = terminal => {
@@ -766,6 +771,7 @@ async function activate(context) {
 
   await provider.reloadHosts();
   controllersReady = true;
+  sessionWorkspace.restore();
   for (const terminal of vscode.window.terminals) reconnectTerminal(terminal).catch(() => {});
   scheduleEditorTerminalStatus(true);
   if (!provider.controllers.length) {
@@ -796,7 +802,7 @@ async function activate(context) {
       }
     })
   );
-  return { registry, provider, view, attachEntry, get terminalStatus() { return terminalStatus; },
+  return { registry, provider, view, attachEntry, sessionWorkspace, get terminalStatus() { return terminalStatus; },
     get controllers() { return provider.controllers; } };
 }
 
@@ -837,12 +843,12 @@ async function resolveSession(item, provider, predicate) {
   return selected ? { controller, entry: selected.entry } : null;
 }
 
-async function chooseRemoteWorkingDirectory(controller) {
+async function chooseRemoteWorkingDirectory(controller, initialDirectory) {
   const current = currentRemoteHost();
   const folder = current === controller.host.sshHost
     ? vscode.workspace.workspaceFolders?.find((candidate) => candidate.uri.scheme === 'vscode-remote')
     : null;
-  const fallback = folder?.uri.path || controller.host.defaultCwd || await controller.ssh.homeDirectory();
+  const fallback = initialDirectory || folder?.uri.path || controller.host.defaultCwd || await controller.ssh.homeDirectory();
   return browseRemoteWorkingDirectory(controller, fallback);
 }
 

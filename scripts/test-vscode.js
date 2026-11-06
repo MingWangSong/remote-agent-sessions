@@ -10,6 +10,8 @@ const net = require('node:net');
 const run = promisify(execFile);
 
 (async () => {
+  if(process.platform==='darwin'&&!process.env.CI&&process.env.RAS_ALLOW_LOCAL_UI!=='1')throw new Error('Local GUI tests are disabled to avoid desktop interruptions. Use CI with Xvfb; set RAS_ALLOW_LOCAL_UI=1 only when foreground UI testing is explicitly allowed.');
+
   const root = path.resolve(__dirname, '..');
   const manifest = require(path.join(root, 'package.json'));
   const extensionId = process.env.RAS_TEST_EXTENSION_ID || `${manifest.publisher}.${manifest.name}`;
@@ -53,10 +55,10 @@ exec sh -c "$1"
     }
     const testsEnv = { RAS_TEST_DIRECTORY: temp, RAS_TEST_SOCKET: socket,
       RAS_TEST_EXTENSION_ID: extensionId,
-      RAS_TEST_REPORT: path.resolve(root,'test-results',process.env.RAS_TEST_FULL_RESTART ? 'restart-icon-results.json' : process.env.RAS_TEST_ICONS ? 'icon-results.json' : process.env.RAS_TEST_RELOAD ? 'reload-results.json' : process.env.RAS_TEST_VSIX ? 'vsix-results.json' : 'vscode-results.json') };
+      RAS_TEST_REPORT: path.resolve(root,'test-results',process.env.RAS_TEST_FULL_RESTART ? 'restart-icon-results.json' : process.env.RAS_TEST_ICONS ? 'icon-results.json' : process.env.RAS_TEST_WORKSPACE_RELOAD ? 'workspace-reload-results.json' : process.env.RAS_TEST_RELOAD ? 'reload-results.json' : process.env.RAS_TEST_VSIX ? 'vsix-results.json' : 'vscode-results.json') };
     const launchArgs = [path.join(temp,'project'),'--user-data-dir',userData,'--extensions-dir',path.join(temp,'extensions'),
       '--disable-extensions','--disable-workspace-trust','--skip-welcome','--skip-release-notes'];
-    if (process.env.RAS_TEST_RELOAD || process.env.RAS_TEST_ICONS) {
+    if (process.env.RAS_TEST_RELOAD || process.env.RAS_TEST_ICONS || process.env.RAS_TEST_WORKSPACE_RELOAD) {
       executable ||= await downloadAndUnzipVSCode({ version: 'stable' });
       // Match @vscode/test-electron's isolated test launch on Linux runners,
       // whose downloaded chrome-sandbox is not installed setuid. These flags
@@ -80,7 +82,7 @@ exec sh -c "$1"
       await fs.writeFile(path.join(driver, 'driver.js'), `const vscode = require('vscode');
 exports.activate = async () => {
   let result;
-  try { const restart = await require(${JSON.stringify(path.join(root, 'integration', 'vscode', process.env.RAS_TEST_ICONS ? 'icons.js' : 'reload.js'))}).run(); result = { passed: true, restart }; }
+  try { const restart = await require(${JSON.stringify(path.join(root, 'integration', 'vscode', process.env.RAS_TEST_ICONS ? 'icons.js' : process.env.RAS_TEST_WORKSPACE_RELOAD ? 'workspaceReload.js' : 'reload.js'))}).run(); result = { passed: true, restart }; }
   catch (error) { result = { passed: false, error: error.stack || String(error) }; }
   await require('node:fs/promises').writeFile(${JSON.stringify(done)}, JSON.stringify(result));
   await vscode.commands.executeCommand('workbench.action.quit');

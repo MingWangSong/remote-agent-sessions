@@ -3,6 +3,8 @@
 const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os'),net=require('node:net');
 const {execFile}=require('node:child_process');const run=require('node:util').promisify(execFile);
 (async()=>{
+  if(process.platform==='darwin'&&!process.env.CI&&process.env.RAS_ALLOW_LOCAL_UI!=='1')throw new Error('Local GUI tests are disabled to avoid desktop interruptions. Use CI with Xvfb; set RAS_ALLOW_LOCAL_UI=1 only when foreground UI testing is explicitly allowed.');
+
  const root=path.resolve(__dirname,'..'),temp=await fs.mkdtemp(path.join(os.tmpdir(),'tmuxdock-docs-'));
  const socket='tmuxdock-docs-'+Date.now(),user=path.join(temp,'profile'),driver=path.join(temp,'driver');
  const output=path.join(root,'media','showcase');await fs.mkdir(output,{recursive:true});await fs.mkdir(driver);await fs.mkdir(path.join(user,'User'),{recursive:true});

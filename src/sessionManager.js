@@ -166,7 +166,7 @@ class SessionManager {
       const preferredName = String(input.tmuxSession || input.title).trim();
       checkTmuxName(preferredName);
       const tmuxSession = uniqueLiteralTmuxName(preferredName, used);
-      const record = createRecord({ ...input, title: tmuxSession, tmuxSession,
+      const record = createRecord({ ...input, workspaceRoot: input.cwd, title: tmuxSession, tmuxSession,
         ...git, windows: [{
           name: 'agent', cwd: input.cwd, command: input.command || null,
           panes: [{ cwd: input.cwd, command: input.command || null, active: true }]
@@ -346,6 +346,7 @@ class SessionManager {
       record.snapshotAt = new Date().toISOString();
       const activeWindow = record.windows.find(w => w.active) || record.windows[0];
       record.cwd = (activeWindow?.panes?.find(p => p.active) || activeWindow?.panes?.[0])?.cwd || activeWindow?.cwd || record.cwd;
+      record.lastCwd = record.cwd;
       Object.assign(record, await this.git.inspect(record.cwd));
       if (needsAgentBinding(record)) throw new Error('This older Agent session has no saved conversation ID. Bind the original conversation before deleting it. The running session was preserved.');
       for (const w of record.windows) {

@@ -1,0 +1,22 @@
+{
+  "vscode": "1.143.1",
+  "passed": 6,
+  "checks": [
+    "native editor opens custom file-system documents with separate host identities",
+    "file access does not require replacing or adding a workspace folder",
+    "FileSystemProvider change event refreshes an open native text document",
+    "secondarySidebar contribution and native TreeView activate on installed VS Code",
+    "embedded browser loads HTTP HTML, root-relative CSS, module JS and fetch resources",
+    "integrated browser resolves a unique *.localhost origin without OS DNS changes"
+  ],
+  "requests": [
+    "/nested/report.html",
+    "/assets/theme.css",
+    "/assets/main.js",
+    "/data.json",
+    "/probe-ok",
+    "/favicon.ico"
+  ],
+  "integratedBrowser": true,
+  "scope": "local in-memory API research only; no SSH, real sessions or product implementation changed"
+}

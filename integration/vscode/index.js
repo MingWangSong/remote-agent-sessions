@@ -362,6 +362,7 @@ exports.run = async function () {
     assert.equal(await controller.tmux.exists('vscode-unmanaged-renamed'), false);
   });
 
+  await require('./workspace').run(api,controller,check);
   for (const terminal of vscode.window.terminals) terminal.dispose();
   await controller.manager.terminate(record);
   await controller.manager.forget(record);

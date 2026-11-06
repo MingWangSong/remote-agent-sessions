@@ -18,6 +18,16 @@ TmuxDock turns remote tmux sessions into a workspace you can browse, reconnect t
 - **Feedback when the network is slow.** Visible operation progress and queue state. Click an already-open tab to reuse it immediately.
 - **Tabs that survive Reload Window.** Retain native terminal tabs and recover their host/session associations.
 
+## Your Agent and its files, side by side.
+
+Right-click a session and select **Show Session Files** to open its fixed working directory in the native right sidebar. Keep your current theme and file icons, browse files in VS Code's read-only editor, and pin the tree when you want it to stay put.
+
+- **Preview HTML** renders linked CSS, JavaScript and images, with automatic reload after remote saves.
+- **Preview Markdown** uses the Markdown renderer already built into VS Code.
+- **Upload Files… / Download File…** reuse your local OpenSSH client. Uploads confirm replacement; transfers show progress and can be cancelled.
+
+New sessions retain their initial root across directory changes and recovery. Older sessions can **Link Working Directory** once. Files and HTML previews restore after Reload Window. The feature requires Python 3 on the Linux/macOS host; OpenSSH 9+ is recommended for SFTP file transfers. Native editing stays read-only; child symlinks and framework dev-server/HMR proxying are outside this first version.
+
 ## Stop a session. Keep its context.
 
 Before **Delete Session** closes a managed tmux workspace, TmuxDock saves its final directories, windows, panes and known Agent conversation links.
@@ -41,7 +51,7 @@ Click the entry in **Stopped / Recoverable** to rebuild a new tmux session with 
 2. Select **Add SSH Host** and enter an alias from your SSH config.
 3. Click a session to connect, or create a named Codex, Claude or shell session.
 
-You need **VS Code 1.90+**, local **OpenSSH**, and **tmux 3.2+** on the remote host. For Agent sessions, install that Agent's CLI on the host. Session discovery does not require a remote VS Code Server installation.
+You need **VS Code 1.106+**, local **OpenSSH**, and **tmux 3.2+** on the remote host. For Agent sessions, install that Agent's CLI on the host. Session discovery does not require a remote VS Code Server installation.
 
 ## Recovery you can understand
 

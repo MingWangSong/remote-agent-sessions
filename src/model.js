@@ -48,6 +48,7 @@ function createRecord(input) {
     tmuxSession: input.tmuxSession,
     host: input.host || os.hostname(),
     cwd: input.cwd || os.homedir(),
+    ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot, rootSource: input.rootSource || 'created' } : {}),
     repoRoot: input.repoRoot || null,
     gitBranch: input.gitBranch || null,
     agent: input.agent || null,

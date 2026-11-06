@@ -1,5 +1,14 @@
 # Changelog
 
+## 3.0.0 — 2026-11-06
+
+- Add Session Files in VS Code's native secondary sidebar with the active file icon theme, lazy directory loading, saved expansion, session following and pinning.
+- Keep each new session's initial workspace root separate from the last terminal directory saved for recovery; let older records explicitly link a root.
+- Reuse native read-only editors and the built-in Markdown preview. Keep the context menu focused on file upload/download and applicable previews.
+- Add static HTML preview with root-relative resources, automatic refresh after remote saves, independent pinning and Reload Window restoration.
+- Reuse one persistent read-only SSH file channel per host with paged/chunked reads, bounded concurrency, watch reference counting and failure backoff. Explicit transfers reuse OpenSSH with cancellation and staged replacement.
+- Require VS Code 1.106+ for the native secondary sidebar; remote file browsing requires Python 3 on Linux/macOS. Keep existing terminal recovery paths intact and run GUI acceptance under CI Xvfb by default.
+
 ## 2.5.1 — 2026-11-05
 
 - Redesign GitHub and Marketplace introductions with distinct copy, a dark visual identity and sanitized real-workbench screenshots.
