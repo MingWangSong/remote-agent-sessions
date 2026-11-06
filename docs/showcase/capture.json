@@ -11,11 +11,11 @@
   ],
   "privacy": "Disposable profile, synthetic host aliases and project documents, isolated tmux sockets, actual Python file channel and OpenSSH SFTP. Agent icons are display-only; no model or private conversation is used.",
   "transport": "Local SSH shim executes the same remote commands against an isolated local fixture; SFTP runs the real OpenSSH server.",
-  "workflow": "https://github.com/MingWangSong/remote-agent-sessions/actions/runs/42196363043",
-  "sourceCommit": "684008a598bf6bf517d018008c69b4781cdc7db1",
+  "workflow": "https://github.com/MingWangSong/remote-agent-sessions/actions/runs/42196995269",
+  "sourceCommit": "3d965728fd78ac66b0cd3e7eb41fbffa1b739e5f",
   "sha256": {
-    "04-live-workspace.png": "50ce62e4d6249ff54ecef8e1b7ced5eb41b89c6ef8de40d9947a3321e58e802e",
-    "05-file-operations.png": "aa0cb03a1935060a95d8403bd3f225cb967aeedefdbedbe4aebbf3d65209d2c9",
-    "06-document-previews.png": "baef1e1f125f3283d4b36bb91daacf7947e60a7ba7c6842e9eccb32e62e06f74"
+    "04-live-workspace.png": "6da5b9feb04e00cb77c4ef7a2d71f77252c1070066110c699e283f32963a78ce",
+    "05-file-operations.png": "b499dfffb0876020ee6fd9bd515fe334a145abd7dafb8cf42951b76954fa0faf",
+    "06-document-previews.png": "bba8aeb49c96014dce5945b666b02255a5380191c372a23309869a388dc1bec6"
   }
 }
