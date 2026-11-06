@@ -17,7 +17,7 @@ function layout() {
     tabs: g.tabs.map((t) => ({
       label: t.label,
       preview: t.isPreview,
-      uri: t.input?.uri?.toString(),
+        uri: t.input?.uri?.toString() || null,
       type: t.input?.viewType || t.input?.constructor?.name,
     })),
   }));
