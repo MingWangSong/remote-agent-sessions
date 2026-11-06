@@ -59,11 +59,12 @@ exports.run = async () => {
     await wait(()=>generationTwo,'Live HTML preview did not reflect the saved fixture update');
     checks.push('Actual HTML webview loads CSS, JS and JSON and refreshes after a file save');
     await capture('04-live-workspace');
-    const source=(await children(src)).find(e=>e.name==='workspace.js');await files.openFile(source);
+    await cdp('Emulation.setDeviceMetricsOverride',{width:1280,height:800,deviceScaleFactor:1,mobile:false});
+    const source=(await children(docs)).find(e=>e.name==='RUNBOOK.md');await files.openFile(source);
     const document=vscode.window.activeTextEditor.document;
-    const edit=new vscode.WorkspaceEdit();edit.insert(document.uri,new vscode.Position(0,0),'// Saved through TmuxDock native remote file editing.\n');
+    const edit=new vscode.WorkspaceEdit();edit.insert(document.uri,new vscode.Position(0,0),'<!-- Saved through TmuxDock native remote file editing. -->\n');
     assert.equal(await vscode.workspace.applyEdit(edit),true);assert.equal(await document.save(),true);
-    assert.ok((await fs.readFile(path.join(root,'src','workspace.js'),'utf8')).startsWith('// Saved through TmuxDock'));
+    assert.ok((await fs.readFile(path.join(root,'docs','RUNBOOK.md'),'utf8')).startsWith('<!-- Saved through TmuxDock'));
     const local=path.join(process.env.SHOWCASE_TEMP,'desktop','release-kit');await fs.mkdir(path.join(local,'assets'),{recursive:true});
     await fs.writeFile(path.join(local,'manifest.json'),'{"project":"atlas-lab","channel":"demo"}\n');
     await fs.writeFile(path.join(local,'README.md'),'# Release kit\n\nUploaded recursively through OpenSSH SFTP.\n');
@@ -80,6 +81,7 @@ exports.run = async () => {
     await capture('05-file-operations',true);
     await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
     await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+    await cdp('Emulation.setDeviceMetricsOverride',{width:1680,height:1000,deviceScaleFactor:1,mobile:false});
     const runbook=(await children(docs)).find(e=>e.name==='RUNBOOK.md');
     await vscode.commands.executeCommand('remoteAgentSessions.previewMarkdown',runbook);
     await vscode.commands.executeCommand('remoteAgentSessions.previewMarkdown',runbook);
