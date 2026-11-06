@@ -110,6 +110,39 @@ exports.run = async () => {
         "workbench.action.openEditorAtIndex" + (i + 1),
       );
       await wait(() => group.tabs[i]?.isActive);
+      const tab = group.tabs[i];
+      if (tab.label.startsWith("Preview · ")) {
+        const name = tab.label.slice("Preview · ".length);
+        try {
+          await wait(() =>
+            [...previews.items].some(
+              (p) =>
+                path.basename(p.state.file) === name &&
+                p.server?.subscriptions.size > 0,
+            ),
+          );
+        } catch (error) {
+          throw new Error(
+            error.message +
+              " " +
+              JSON.stringify({
+                tab: name,
+                layout: layout(),
+                previews: [...previews.items].map((p) => ({
+                  state: p.state,
+                  server: Boolean(p.server),
+                  html: p.panel.webview.html.slice(0, 700),
+                })),
+              }),
+          );
+        }
+      } else if (tab.input?.uri?.scheme === "tmuxdock-remote") {
+        await wait(() =>
+          vscode.workspace.textDocuments.some(
+            (d) => d.uri.toString() === tab.input.uri.toString(),
+          ),
+        );
+      }
     }
     await wait(
       () =>

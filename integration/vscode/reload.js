@@ -23,7 +23,8 @@ exports.run = async () => {
   let state = await fs.readFile(checkpoint, 'utf8').then(JSON.parse).catch(() => null);
   const check = async (name, fn) => {
     try { await fn(); }
-    catch (error) { throw new Error(name + ': ' + error.message + '\n' + JSON.stringify({ expected: state.terminals,
+    catch (error) { throw new Error(name + ': ' + error.stack + '\n' + JSON.stringify({ expected: state.terminals,
+      status:api.terminalStatus.text, activeTerminal:vscode.window.activeTerminal?.name, selection:api.view.selection.map(i=>i.entry?.id),
       actual: vscode.window.terminals.map(terminal => ({ name: terminal.name, options: terminal.creationOptions, exit: terminal.exitStatus })), layout: layout() }), { cause: error }); }
     state.checks.push(name); console.log('PASS:', name);
   };
@@ -117,7 +118,8 @@ exports.run = async () => {
       await waitFor(() => api.terminalStatus.text.includes(second.host.label));
       await vscode.commands.executeCommand('remoteAgentSessions.sessions.focus');
       await waitFor(() => api.view.visible);
-      terminalNamed('Reload task').show();
+      await vscode.commands.executeCommand('workbench.action.focusFirstEditorGroup');
+      terminalNamed('Reload task').show(false);
       await waitFor(() => api.terminalStatus.text.includes(first.host.label));
       await waitFor(() => api.view.selection[0]?.entry?.id === state.records[0].id);
       const originalList = second.tmux.list; const count = vscode.window.terminals.length;
