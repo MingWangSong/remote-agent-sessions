@@ -15,7 +15,7 @@ const {downloadAndUnzipVSCode} = require("@vscode/test-electron");
   const server = process.platform === "darwin" ? "/usr/libexec/sftp-server" : "/usr/lib/openssh/sftp-server";
   await fs.access(server);
   const shim = path.join(temp,"ssh");
-  await fs.writeFile(shim, `#!/bin/sh\nset -eu\nwhile [ "$#" -gt 0 ]; do\n case "$1" in\n -o|-F|-i|-p|-l|-J) shift 2;;\n -tt|-T|-s|-x|-a|-4|-6|-C|-q|-v|--) shift;;\n *) break;;\n esac\ndone\nshift\nif [ "\${1:-}" = "sftp" ]; then exec ${server}; fi\nif [ "$#" -eq 0 ]; then exec sh; fi\nexec sh -c "$1"\n`,{mode:0o700});
+  await fs.writeFile(shim, `#!/bin/sh\nset -eu\nwhile [ "$#" -gt 0 ]; do\n case "$1" in\n -o|-F|-i|-p|-l|-J) shift 2;;\n -o?*|-F?*|-i?*|-p?*|-l?*|-J?*) shift;;\n -tt|-T|-s|-x|-a|-4|-6|-C|-q|-v|--) shift;;\n *) break;;\n esac\ndone\nshift\nif [ "\${1:-}" = "sftp" ]; then exec ${server}; fi\nif [ "$#" -eq 0 ]; then exec sh; fi\nexec sh -c "$1"\n`,{mode:0o700});
   for (const program of ["sftp","scp"]) await fs.symlink((await run("which",[program])).stdout.trim(), path.join(temp,program));
   await fs.writeFile(path.join(profile,"User","settings.json"),JSON.stringify({
     "remoteAgentSessions.sshPath":shim,"remoteAgentSessions.refreshInterval":3600,
