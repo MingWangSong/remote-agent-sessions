@@ -2,7 +2,7 @@
 const vscode = require("vscode");
 const path = require("node:path").posix;
 const { randomBytes } = require("node:crypto");
-const { RemoteFiles, relative } = require("./remoteFiles");
+const { RemoteFiles, relative, entryNameError } = require("./remoteFiles");
 const { HtmlPreviews } = require("./htmlPreviews");
 const transfers = require("./fileTransfers");
 const SCHEME = "tmuxdock-remote";
@@ -49,7 +49,7 @@ class SessionWorkspace {
       this,
       this.view,
       vscode.workspace.registerFileSystemProvider(SCHEME, this.fileProvider(), {
-        isReadonly: true,
+        isReadonly: false,
         isCaseSensitive: true,
       }),
       vscode.workspace.onDidOpenTextDocument((doc) => this.watchDocument(doc)),
@@ -139,6 +139,8 @@ class SessionWorkspace {
       this.updateTitle();
     });
     register("openFile", (item) => this.openFile(item));
+    register("newFile", (item) => this.createEntry(item, "file"));
+    register("newFolder", (item) => this.createEntry(item, "directory"));
     register("loadMoreFiles", (item) => {
       const key = item.parent.uri.toString();
       this.limits.set(key, (this.limits.get(key) || 200) + 200);
@@ -351,7 +353,11 @@ class SessionWorkspace {
             ? vscode.FileSystemError.NoPermissions
             : e.code === "NotFound"
               ? vscode.FileSystemError.FileNotFound
-              : vscode.FileSystemError.Unavailable
+              : e.code === "FileExists"
+                ? vscode.FileSystemError.FileExists
+                : e.code === "NotDirectory"
+                  ? vscode.FileSystemError.FileNotADirectory
+                  : vscode.FileSystemError.Unavailable
         )(e.message);
       }
     };
@@ -386,20 +392,15 @@ class SessionWorkspace {
           return new vscode.Disposable(() => {});
         }
       },
-      writeFile: () => {
-        throw vscode.FileSystemError.NoPermissions(
-          "Session Files is read-only",
-        );
-      },
+      writeFile: (u, data, options) =>
+        wrap(() => self.access(u).write(u.path, data, options)),
       delete: () => {
         throw vscode.FileSystemError.NoPermissions();
       },
       rename: () => {
         throw vscode.FileSystemError.NoPermissions();
       },
-      createDirectory: () => {
-        throw vscode.FileSystemError.NoPermissions();
-      },
+      createDirectory: (u) => wrap(() => self.access(u).mkdir(u.path)),
     };
   }
   watchDocument(doc) {
@@ -648,7 +649,7 @@ class SessionWorkspace {
     const s = await this.access(item.uri).stat(item.uri.path);
     if (s.size > 2 * 1024 * 1024) {
       const answer = await vscode.window.showWarningMessage(
-        "This file is larger than 2 MiB. Open it in the read-only viewer?",
+        "This file is larger than 2 MiB. Open it in the remote editor?",
         "Open",
       );
       if (answer !== "Open") return;
@@ -658,6 +659,69 @@ class SessionWorkspace {
         vscode.window.activeTextEditor?.document.uri.toString() !==
         item.uri.toString(),
       viewColumn: vscode.ViewColumn.Active,
+    });
+  }
+  async createEntry(item, kind) {
+    const selected = item || this.view.selection[0];
+    const c = item?.context || this.current;
+    if (!this.enabled || !c?.root)
+      throw new Error("Select a linked session directory first");
+    const candidate =
+      selected?.context?.controller.host.id === c.controller.host.id &&
+      selected.context.root === c.root
+        ? selected
+        : null;
+    const parent =
+      candidate?.type === "directory" ? candidate : candidate?.parentNode;
+    const directory = parent?.uri.path || c.root;
+    relative(c.root, directory);
+    const name = await this.askEntryName(kind, directory);
+    if (name === undefined) return;
+    const error = entryNameError(name);
+    if (error) throw new Error(error);
+    const file = path.join(directory, name);
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "TmuxDock · Creating " + name,
+      },
+      () => this.service(c.controller).create(file, kind, c.root),
+    );
+    // A slow response from session A must not select a file in session B.
+    if (
+      this.current?.controller.host.id !== c.controller.host.id ||
+      this.current.entry.id !== c.entry.id ||
+      this.current.root !== c.root
+    )
+      return;
+    const entry = {
+      ...result,
+      name,
+      uri: uri(c.controller.host.id, file),
+      context: c,
+      parentNode: parent,
+    };
+    if (this.view.visible)
+      await this.view
+        .reveal(entry, {
+          select: true,
+          focus: false,
+          expand: kind === "directory",
+        })
+        .catch(() => {});
+    if (kind === "file")
+      await vscode.commands.executeCommand("vscode.open", entry.uri, {
+        preview: false,
+        viewColumn: vscode.ViewColumn.Active,
+      });
+    return entry;
+  }
+  askEntryName(kind, directory) {
+    return vscode.window.showInputBox({
+      title: kind === "file" ? "New File" : "New Folder",
+      prompt: "Create in " + directory,
+      placeHolder: kind === "file" ? "report.md" : "new-folder",
+      validateInput: entryNameError,
     });
   }
   async transfer(title, action) {

@@ -1,4 +1,4 @@
-# TmuxDock 3.0.1
+# TmuxDock 3.1.0
 
 把多台 SSH 服务器上的 tmux 会话停靠到本地 VS Code：一处查看、连接、记录和重建；特别适合 Claude Code、Codex 等 Agent CLI。
 
@@ -7,16 +7,16 @@
 1. 更新插件后在方便时执行 **Developer: Reload Window**。
 2. 右键一个 session → **Show Session Files**，打开右侧原生目录树。也可从命令面板运行同名命令。
 3. 新会话默认固定初始化目录；旧会话点击 **Link Working Directory** 选择目录。不自动把旧的最后 cwd 当作工作区根目录。
-4. 单击文件使用原生只读编辑器；目录右键 **Upload Files…**，文件右键 **Download File…**。HTML / Markdown 分别显示对应预览入口。目录树空白处的标题栏上传按钮上传到当前根目录。
+4. 单击文件使用原生编辑器，修改后按保存快捷键直接写入远端；目录右键 **Upload Files…**，文件右键 **Download File…**。HTML / Markdown 分别显示对应预览入口。标题栏提供 **New File… / New Folder…**，在选中目录内创建；未选中时使用工作根目录。目录右键也有相同入口。新建文件后会自动打开编辑器。同名创建会报错，不覆盖已有内容；上传入口位于目录右键和标题栏更多菜单。
 5. HTML 自动加载 CSS、JS、图片和根相对路径资源，远端保存后自动重载。Markdown 复用 VS Code 自带预览。每次预览都在当前编辑器分组新建永久标签，同一个文件也可以打开多个预览；切换 session 不替换旧预览。
 6. 插件不自动创建分屏。已有分屏保留用户布局，需要时手动拖动标签。目录树仍可通过 **Toggle Follow Session** 固定；HTML 预览始终固定在自己的文件上，移除旧 Pin 按钮，保留 **Refresh**（手动刷新）与 **Browser**（在 VS Code 浏览器打开）。
 7. session 右键保留查看文件、重命名和 **Stop Session (Keep Recovery Record)**。已停止会话提供恢复和 **Remove Recovery Record**。详情、备注、恢复命令、目录设置等放在 **More Actions**；缺原对话 ID 的 Agent 才在其中显示绑定入口。
 
-远端 Linux/macOS 需要 Python 3，无需部署 Web 服务或安装 VS Code Server。上传下载使用本机 OpenSSH `scp`，推荐 OpenSSH 9+（默认 SFTP）；保留 SSH 配置、连接复用和主机指纹检查。上传先传到临时文件，完成后替换目标；同名覆盖会先确认。下载成功前保留原有本地文件。断线可能留下带随机标识的 `.tmuxdock-upload-*` 临时文件；不会以不完整传输覆盖原文件。
+远端 Linux/macOS 需要 Python 3，无需部署 Web 服务或安装 VS Code Server。上传下载继续使用本机 OpenSSH `scp`，推荐 OpenSSH 9+（默认 SFTP）；保留 SSH 配置、连接复用和主机指纹检查。上传先传到临时文件，完成后替换目标；同名覆盖会先确认。下载成功前保留原有本地文件。断线可能留下带随机标识的 `.tmuxdock-upload-*` 临时文件；不会以不完整传输覆盖原文件。
 
 浏览和预览使用独立的持久 SSH 文件通道，不进入 session 操作队列。目录分页加载，只监测展开目录、打开文档和已请求的预览资源；默认约 1.2 秒合并检查，有实际变化才更新。无订阅后停止轮询，空闲关闭通道；断线逐步退避至最长 30 秒，手动刷新可立即重试。真实延迟仍受远端负载和网络往返影响。
 
-第一版原生编辑器只读，上传是显式写入入口；支持文件上传下载，不递归传输目录。子级符号链接不跟随；隐藏 `.git` / `node_modules`；超大目录分页，原生文本查看限制 16 MiB，HTML 单资源限制 128 MiB。HTML 是静态预览，不包含任意开发服务器代理或 HMR；不复制 Explorer 的 Git、Timeline、重命名和删除能力。HTML 脚本需要可信工作区，预览 HTTP 端口只绑定本机回环地址。
+原生编辑器支持保存，新建和保存复用现有 SSH 文件通道；保存先写同目录临时文件，完成后原子替换，保留原文件的执行权限位。检测到写入期间目标被 Agent 改动时，拒绝覆盖并提示重新加载。VS Code 的外部修改与脏文档处理继续由原生编辑器负责；支持文件上传下载，不递归传输目录。子级符号链接不跟随；隐藏 `.git` / `node_modules`；超大目录分页，单文件读取与保存限制 16 MiB，HTML 单资源限制 128 MiB。HTML 是静态预览，不包含任意开发服务器代理或 HMR；不复制 Explorer 的 Git、Timeline、重命名和删除能力。HTML 脚本需要可信工作区，预览 HTTP 端口只绑定本机回环地址。
 
 通过 `remoteAgentSessions.sessionFilesEnabled=false` 可停用目录树、文档读取和预览。固定工作根目录仍保留在恢复元数据中。
 
@@ -94,7 +94,7 @@ Codex 使用官方 Codex 扩展的 OpenAI Blossom 标识（浅色主题黑色、
 
 要求：本机 VS Code 1.106+ 和 OpenSSH；远端 Linux/macOS、tmux 3.2+。Windows 本机需安装并配置 OpenSSH Client。
 
-1. 在本地 VS Code 窗口运行 **Extensions: Install from VSIX...**，选择 `tmuxdock-3.0.1.vsix`。
+1. 在本地 VS Code 窗口运行 **Extensions: Install from VSIX...**，选择 `tmuxdock-3.1.0.vsix`。
 2. 在扩展详情中确认显示 **Installed Locally**，不要点击 Install in SSH。
 3. 点击左侧 **TmuxDock** 图标，再点击顶部 **Add SSH Host** 图标。
 4. 输入 `~/.ssh/config` 中的别名（例如 `dev-server`）或 `user@host`；tmux socket 留空即管理默认 server，也可填写命名 socket 进行隔离。首次主机指纹确认和交互式登录请先在普通终端执行一次 `ssh 主机`。

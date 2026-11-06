@@ -28,7 +28,7 @@ When you deliberately stop a managed workspace, TmuxDock saves its final directo
 | **Stable navigation** | Creation-time ordering, persistent drag ordering, separate Running and Stopped / Recoverable groups. |
 | **Visible operations** | Progress and queue feedback for slow SSH requests; already-open terminals are reused locally. |
 | **Context-aware recovery** | Rebuild saved windows and panes in their last directories; resume known conversations by exact ID. |
-| **Session files beside your Agents** | Native right-sidebar tree, theme-aware file icons, read-only editors and built-in Markdown previews. |
+| **Session files beside your Agents** | Native right-sidebar tree, theme-aware file icons, native editing and built-in Markdown previews. |
 | **Live HTML and file transfers** | Preview HTML with relative resources and automatic reload; explicitly upload or download through OpenSSH. |
 | **Reload continuity** | Preserve native terminal tabs and reconnect their host/session associations after Reload Window. |
 
@@ -36,9 +36,9 @@ When you deliberately stop a managed workspace, TmuxDock saves its final directo
 
 Right-click a session → **Show Session Files**. Its fixed working root appears in the right sidebar using VS Code's native tree and your file icon theme. Switching session tabs follows their directory; **Toggle Follow Session** pins the current tree. The initial root stays fixed even when a terminal changes directory or a stopped session is restored.
 
-Click a file to view it in the native read-only editor. The small context menu offers **Upload Files…**, **Download File…**, **Preview HTML** or **Preview Markdown**, as appropriate. Markdown uses VS Code's built-in preview. HTML previews load CSS, scripts, images and root-relative resources, then reload when requested files change. Every HTML or Markdown preview opens in a separate permanent tab in the current editor group, including repeated previews of the same file. Switching sessions never replaces those previews. Only manually arranging tabs creates splits; Reload Window restores their layout.
+Click a file to edit it in the native editor and save directly to the host. Use **New File… / New Folder…** in the tree toolbar or a folder context menu; existing names are never overwritten by creation. The small context menu offers **Upload Files…**, **Download File…**, **Preview HTML** or **Preview Markdown**, as appropriate. Markdown uses VS Code's built-in preview. HTML previews load CSS, scripts, images and root-relative resources, then reload when requested files change. Every HTML or Markdown preview opens in a separate permanent tab in the current editor group, including repeated previews of the same file. Switching sessions never replaces those previews. Only manually arranging tabs creates splits; Reload Window restores their layout.
 
-This optional feature requires Python 3 on the Linux/macOS host. Upload/download reuse local OpenSSH's `scp` and existing SSH connection options; use OpenSSH 9+ for SFTP transfers. Uploads ask before replacing a same-name file and stage it before committing. The native editor remains read-only. Older sessions need **Link Working Directory** once; no root is inferred from an old terminal's last directory.
+These file features require Python 3 on the Linux/macOS host. Upload/download reuse local OpenSSH's `scp` and existing SSH connection options; use OpenSSH 9+ for SFTP transfers. Uploads ask before replacing a same-name file and stage it before committing. Saves use temporary-file staging and atomic replacement through the shared file channel; reads and saves are limited to 16 MiB per file. Older sessions need **Link Working Directory** once; no root is inferred from an old terminal's last directory.
 
 The first version supports static HTML, not a framework dev-server/HMR proxy. It does not follow child symlinks or duplicate Explorer's Git, Timeline or file-management features. Expanded folders and open documents are watched over one persistent SSH file channel; polling pauses when idle and backs off on failures. Disable it with `remoteAgentSessions.sessionFilesEnabled`.
 

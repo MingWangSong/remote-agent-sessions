@@ -104,7 +104,7 @@ exports.run = async (api, controller, check) => {
     },
   );
   await check(
-    "Session files: native read-only document refreshes after an Agent-style atomic replacement",
+    "Session files: native editing saves to the remote host and Agent replacements refresh the document",
     async () => {
       const item = (await files.getChildren()).find(
         (e) => e.name === "report.txt",
@@ -113,16 +113,81 @@ exports.run = async (api, controller, check) => {
       doc = vscode.window.activeTextEditor.document;
       assert.equal(doc.uri.scheme, "tmuxdock-remote");
       assert.equal(doc.getText(), "generation one");
-      await assert.rejects(
-        vscode.workspace.fs.writeFile(item.uri, Buffer.from("unsafe")),
-        /permission|read.only/i,
+      const edit = new vscode.WorkspaceEdit();
+      edit.replace(
+        doc.uri,
+        new vscode.Range(
+          doc.positionAt(0),
+          doc.positionAt(doc.getText().length),
+        ),
+        "saved from VS Code",
       );
+      assert.equal(await vscode.workspace.applyEdit(edit), true);
+      assert.equal(doc.isDirty, true);
+      assert.equal(await doc.save(), true);
+      assert.equal(
+        await fs.readFile(path.join(root, "report.txt"), "utf8"),
+        "saved from VS Code",
+      );
+      assert.equal(doc.isDirty, false);
       await fs.writeFile(path.join(root, "report.tmp"), "generation two");
       await fs.rename(
         path.join(root, "report.tmp"),
         path.join(root, "report.txt"),
       );
       await wait(() => doc.getText() === "generation two");
+    },
+  );
+  await check(
+    "Session files: native creation commands create and reveal files/folders without overwriting existing contents",
+    async () => {
+      const create = async (command, item, name) => {
+        const ask = files.askEntryName;
+        files.askEntryName = async () => name;
+        try {
+          return await vscode.commands.executeCommand(
+            "remoteAgentSessions." + command,
+            item,
+          );
+        } finally {
+          files.askEntryName = ask;
+        }
+      };
+      await create("newFolder", undefined, "created-folder");
+      assert.ok(
+        (await fs.stat(path.join(root, "created-folder"))).isDirectory(),
+      );
+      const folder = (await files.getChildren()).find(
+        (e) => e.name === "created-folder",
+      );
+      assert.ok(folder);
+      await create("newFile", folder, "created.md");
+      const target = path.join(root, "created-folder", "created.md");
+      assert.equal(await fs.readFile(target, "utf8"), "");
+      await wait(
+        () => vscode.window.activeTextEditor?.document.uri.path === target,
+      );
+      const created = vscode.window.activeTextEditor.document;
+      const edit = new vscode.WorkspaceEdit();
+      edit.insert(
+        created.uri,
+        new vscode.Position(0, 0),
+        "# Created and saved",
+      );
+      await vscode.workspace.applyEdit(edit);
+      assert.equal(await created.save(), true);
+      assert.equal(await fs.readFile(target, "utf8"), "# Created and saved");
+      await assert.rejects(
+        files.service(controller).create(target, "file"),
+        (error) => error.code === "FileExists",
+      );
+      assert.equal(await fs.readFile(target, "utf8"), "# Created and saved");
+      await vscode.workspace.fs.createDirectory(
+        folder.uri.with({ path: path.join(root, "nested", "child") }),
+      );
+      assert.ok(
+        (await fs.stat(path.join(root, "nested", "child"))).isDirectory(),
+      );
     },
   );
   await check(

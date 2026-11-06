@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Your remote work, docked. Manage multi-host tmux, Codex and Claude sessions in local VS Code with context-aware recovery.",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -265,6 +265,18 @@
         "title": "Preview Markdown",
         "category": "TmuxDock",
         "icon": "$(open-preview)"
+      },
+      {
+        "command": "remoteAgentSessions.newFile",
+        "title": "New File\u2026",
+        "category": "TmuxDock",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "remoteAgentSessions.newFolder",
+        "title": "New Folder\u2026",
+        "category": "TmuxDock",
+        "icon": "$(new-folder)"
       }
     ],
     "viewsContainers": {
@@ -323,12 +335,12 @@
         {
           "command": "remoteAgentSessions.linkDirectory",
           "when": "view == remoteAgentSessions.files",
-          "group": "navigation@1"
+          "group": "workspace@1"
         },
         {
           "command": "remoteAgentSessions.pinFiles",
           "when": "view == remoteAgentSessions.files",
-          "group": "navigation@2"
+          "group": "workspace@2"
         },
         {
           "command": "remoteAgentSessions.refreshFiles",
@@ -338,7 +350,17 @@
         {
           "command": "remoteAgentSessions.uploadFiles",
           "when": "view == remoteAgentSessions.files",
-          "group": "navigation@0"
+          "group": "actions@1"
+        },
+        {
+          "command": "remoteAgentSessions.newFile",
+          "when": "view == remoteAgentSessions.files",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.newFolder",
+          "when": "view == remoteAgentSessions.files",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -441,6 +463,16 @@
           "command": "remoteAgentSessions.forget",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /^sessionRecoverable/",
           "group": "danger@2"
+        },
+        {
+          "command": "remoteAgentSessions.newFile",
+          "when": "view == remoteAgentSessions.files && viewItem == remoteDirectory",
+          "group": "creation@1"
+        },
+        {
+          "command": "remoteAgentSessions.newFolder",
+          "when": "view == remoteAgentSessions.files && viewItem == remoteDirectory",
+          "group": "creation@2"
         }
       ],
       "remoteAgentSessions.sessionMore": [
@@ -547,7 +579,7 @@
         "remoteAgentSessions.sessionFilesEnabled": {
           "type": "boolean",
           "default": true,
-          "description": "Enable the read-only session file tree and live HTML preview. Requires Python 3 on the remote host.",
+          "description": "Enable session file browsing, creation, editing and live HTML preview. Requires Python 3 on the remote host.",
           "scope": "machine"
         }
       }

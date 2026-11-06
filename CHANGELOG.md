@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.1.0 — 2026-11-06
+
+- Add New File and New Folder actions to Session Files, including root toolbar actions and creation inside selected directories. Reject existing names without overwriting their contents.
+- Enable native editing and Save for linked remote files, including new files. Save through the shared SSH file channel with temporary-file staging, fsync, atomic replacement and detection of changes during a save.
+- Refresh file trees, native documents and independent HTML/Markdown previews after successful writes. Keep preview HTTP endpoints read-only and preserve remote path boundaries, permissions and existing session recovery behavior.
+- Bound file saves to 16 MiB, preserve executable permission bits, and clean temporary files on failed writes. File and folder removal/rename remain outside these actions.
+
 ## 3.0.1 — 2026-11-06
 
 - Keep every HTML and Markdown preview in its own permanent tab, including repeated opens of the same file. Use the active editor group and never create a split automatically.

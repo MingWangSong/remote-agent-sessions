@@ -1,11 +1,13 @@
-# Read-only, descriptor-relative file service. Runs over a private OpenSSH stdio channel.
-import os, sys, stat, json, struct, base64, uuid, hashlib
-MAX_FRAME = 1048576
+# Descriptor-relative file service over a private OpenSSH stdio channel.
+import os, sys, stat, json, struct, base64, uuid, hashlib, signal
+MAX_FILE = 16 * 1024 * 1024
+MAX_FRAME = 24 * 1024 * 1024
 roots = {}
 if os.name != 'posix':
     sys.stderr.write('Session Files requires a Linux or macOS host with Python 3.\n'); sys.exit(1)
 NOFOLLOW = getattr(os, 'O_NOFOLLOW', 0)
 DIR = os.O_RDONLY | os.O_DIRECTORY | NOFOLLOW
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
 
 def receive(n):
     chunks = []
@@ -44,9 +46,91 @@ def info(s):
     return {'type': kind, 'size': s.st_size, 'mtime': s.st_mtime_ns//1000000,
             'ctime': s.st_ctime_ns//1000000, 'signature': str(s.st_dev)+':'+str(s.st_ino)+':'+str(s.st_mtime_ns)+':'+str(s.st_size)}
 
+def parent_path(p):
+    ps = parts(p.get('path', ''))
+    if not ps: raise PermissionError('The workspace root cannot be replaced')
+    fd = open_path(p['root'], '/'.join(ps[:-1]))
+    if not stat.S_ISDIR(os.fstat(fd).st_mode):
+        os.close(fd); raise NotADirectoryError('The parent is not a directory')
+    return fd, ps[-1]
+
+def identity(s):
+    return (s.st_dev, s.st_ino, s.st_mtime_ns, s.st_ctime_ns, s.st_size)
+
+def write_file(p):
+    data = base64.b64decode(p['data'], validate=True)
+    if len(data) > MAX_FILE: raise ValueError('Files larger than 16 MiB cannot be saved')
+    fd, name = parent_path(p)
+    temporary = '.tmuxdock-write-' + uuid.uuid4().hex
+    created = False
+    try:
+        try: before = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError: before = None
+        if before:
+            if not stat.S_ISREG(before.st_mode): raise PermissionError('Only regular files can be saved; symbolic links are not followed')
+            if not p.get('overwrite'): raise FileExistsError('A file or directory with this name already exists')
+            # Check actual write permission without truncating the original file.
+            checked = os.open(name, os.O_WRONLY | NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+            try:
+                if identity(os.fstat(checked)) != identity(before): raise PermissionError('The file changed; reload it before saving')
+            finally: os.close(checked)
+        elif not p.get('create'): raise FileNotFoundError('The file no longer exists')
+        target = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, 0o666, dir_fd=fd)
+        created = True
+        try:
+            if before: os.fchmod(target, stat.S_IMODE(before.st_mode) & 0o777)
+            remaining = memoryview(data)
+            while remaining:
+                count = os.write(target, remaining)
+                if count <= 0: raise OSError('Unable to finish writing the temporary file')
+                remaining = remaining[count:]
+            os.fsync(target)
+        finally: os.close(target)
+        # Detect an Agent replacing or modifying the original while data was written.
+        try: current = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        except FileNotFoundError: current = None
+        if before:
+            if not current or identity(current) != identity(before): raise PermissionError('The file changed while saving; reload it before trying again')
+            os.replace(temporary, name, src_dir_fd=fd, dst_dir_fd=fd)
+            created = False
+        else:
+            # link is an atomic no-overwrite commit, including a concurrent create.
+            os.link(temporary, name, src_dir_fd=fd, dst_dir_fd=fd, follow_symlinks=False)
+        return {**info(os.stat(name, dir_fd=fd, follow_symlinks=False)), 'created': before is None}
+    finally:
+        if created:
+            try: os.unlink(temporary, dir_fd=fd)
+            except FileNotFoundError: pass
+        os.close(fd)
+
+def create_entry(p):
+    if p.get('kind') not in ('file', 'directory'): raise ValueError('Unknown entry type')
+    fd, name = parent_path(p)
+    try:
+        if p['kind'] == 'directory': os.mkdir(name, dir_fd=fd)
+        else:
+            target = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, 0o666, dir_fd=fd)
+            os.close(target)
+        return info(os.stat(name, dir_fd=fd, follow_symlinks=False))
+    finally: os.close(fd)
+
+def make_directories(p):
+    fd = open_path(p['root'], '')
+    created = []; prefix = []
+    try:
+        for name in parts(p.get('path', '')):
+            prefix.append(name)
+            try:
+                os.mkdir(name, dir_fd=fd); created.append('/'.join(prefix))
+            except FileExistsError: pass
+            child = os.open(name, DIR, dir_fd=fd)
+            os.close(fd); fd = child
+        return {**info(os.fstat(fd)), 'createdPaths': created}
+    finally: os.close(fd)
+
 def perform(m):
     op = m['op']; p = m.get('params', {})
-    if op == 'hello': return {'version': 1, 'readonly': True}
+    if op == 'hello': return {'version': 2, 'capabilities': {'read': True, 'create': True, 'write': True}}
     if op == 'bind':
         if len(roots) >= 128: raise ValueError('Too many workspace roots')
         path = p['path']
@@ -58,6 +142,9 @@ def perform(m):
         r = roots.pop(p['root'], None)
         if r: os.close(r['fd'])
         return True
+    if op == 'create': return create_entry(p)
+    if op == 'write': return write_file(p)
+    if op == 'mkdir': return make_directories(p)
     if op == 'snapshot':
         checked = open_path(p['root'], ''); os.close(checked)
         paths = p.get('paths', [])
@@ -100,7 +187,7 @@ def perform(m):
             offset = max(0, int(p.get('offset', 0))); length = min(262144, max(0, int(p.get('length', 262144))))
             os.lseek(fd, offset, os.SEEK_SET)
             return {**info(s), 'data': base64.b64encode(os.read(fd, length)).decode('ascii')}
-        raise ValueError('Unsupported read-only operation')
+        raise ValueError('Unsupported file operation')
     finally: os.close(fd)
 
 while True:
@@ -110,7 +197,7 @@ while True:
         message = json.loads(receive(size)); ident = message.get('id')
         try: response = {'id': ident, 'result': perform(message)}
         except Exception as e:
-            code = 'NotFound' if isinstance(e, FileNotFoundError) else 'NoPermissions' if isinstance(e, PermissionError) else 'NotDirectory' if isinstance(e, NotADirectoryError) else 'Unavailable'
+            code = 'NotFound' if isinstance(e, FileNotFoundError) else 'FileExists' if isinstance(e, FileExistsError) else 'NoPermissions' if isinstance(e, PermissionError) else 'NotDirectory' if isinstance(e, NotADirectoryError) else 'Unavailable'
             response = {'id': ident, 'error': {'code': code, 'message': str(e)[:500]}}
         b = json.dumps(response, ensure_ascii=True, separators=(',', ':')).encode('utf-8')
         sys.stdout.buffer.write(struct.pack('>I', len(b)) + b); sys.stdout.buffer.flush()

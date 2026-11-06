@@ -17,7 +17,7 @@
 | 列表不再跳动 | 按创建时间排列，也可拖拽保存顺序；运行中与停止记录分开显示。 |
 | 慢网络有反馈 | 操作显示进度和排队状态；已有标签本地直接复用。 |
 | 删除后可恢复 | 先保存最后目录、布局和原对话 ID，再停止 tmux；恢复时重建同名会话并续接原对话。 |
-| 右侧原生目录树 | 跟随 session 的固定工作目录，使用当前文件图标主题和原生只读编辑器。 |
+| 右侧原生目录树 | 跟随 session 的固定工作目录，使用当前文件图标主题和原生编辑器。 |
 | 文件与实时预览 | 上传、下载文件；HTML 资源变化自动刷新；Markdown 复用 VS Code 自带预览。 |
 | 重载保留标签 | 使用 VS Code 原生终端持久化，恢复标签及主机关联。 |
 
@@ -25,11 +25,11 @@
 
 右键会话 → **Show Session Files**，在右侧查看固定工作目录。切换 session 标签时目录随之切换，也可通过 **Toggle Follow Session** 固定当前目录。新会话把初始化目录保存为固定根目录；终端后续 `cd` 和 Delete / Restore 都不改变它。旧会话可用 **Link Working Directory** 手动关联一次。
 
-文件单击用 VS Code 原生只读编辑器打开。目录右键可 **Upload Files…**，文件右键可 **Download File…**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview Markdown**。不堆叠 Git、Timeline、删除和重命名等菜单。
+文件单击用 VS Code 原生编辑器打开。目录右键可 **Upload Files…**，文件右键可 **Download File…**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview Markdown**。不堆叠 Git、Timeline、删除和重命名等菜单。
 
 HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载资源后自动重载；HTML 和 Markdown 每次预览都在当前编辑器分组新建独立标签，切换 session 不覆盖旧预览；不会自动分屏，Reload Window 后保留布局。Markdown 直接使用 VS Code 自带预览。
 
-远端 Linux/macOS 需 Python 3；上传下载复用本地 OpenSSH，推荐 OpenSSH 9+ 的 SFTP 传输。上传覆盖同名文件前会确认，传输有进度和取消入口。首版不跟随子级符号链接，不代理开发服务器/HMR。可关闭 `remoteAgentSessions.sessionFilesEnabled` 停用此功能。
+远端 Linux/macOS 需 Python 3；上传下载复用本地 OpenSSH，推荐 OpenSSH 9+ 的 SFTP 传输。上传覆盖同名文件前会确认，传输有进度和取消入口。保存先写临时文件再原子替换，失败不留下半截目标文件；单文件读取与保存限制 16 MiB。文件树尚未提供重命名和删除。不跟随子级符号链接，不代理开发服务器/HMR。可关闭 `remoteAgentSessions.sessionFilesEnabled` 停用此功能。
 
 ## 从停止，到继续
 

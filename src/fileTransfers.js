@@ -1,6 +1,6 @@
 "use strict";
 // Explicit file transfers reuse the installed OpenSSH client and SSH config.
-// The browser/preview file channel stays read-only.
+// Transfers reuse OpenSSH; HTTP preview endpoints remain read-only.
 const { spawn } = require("node:child_process");
 const { randomUUID } = require("node:crypto");
 const fs = require("node:fs/promises");

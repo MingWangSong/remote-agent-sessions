@@ -148,11 +148,11 @@ test("remote files: a disconnected owned channel reconnects and rebinds; revoked
   await assert.rejects(f.files.stat(file), /Link/);
   await assert.rejects(f.files.stat(file, f.dir), /no longer linked/);
 });
-test("remote files: read-only protocol rejects writes and caps viewing size", async (t) => {
+test("remote files: unsupported mutations are rejected and viewing size is capped", async (t) => {
   const f = await fixture(t);
   await fs.writeFile(path.join(f.dir, "x"), "unchanged");
   await assert.rejects(
-    f.files.channel.at(f.dir, "write", { path: "x", data: "bad" }),
+    f.files.channel.at(f.dir, "delete", { path: "x" }),
     /Unsupported/,
   );
   assert.equal(await fs.readFile(path.join(f.dir, "x"), "utf8"), "unchanged");

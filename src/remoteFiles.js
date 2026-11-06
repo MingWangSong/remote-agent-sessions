@@ -6,7 +6,8 @@ const source = Buffer.from(
   fs.readFileSync(require("node:path").join(__dirname, "remoteFileHelper.py")),
 ).toString("base64");
 const script = `import base64;exec(base64.b64decode('${source}'))`;
-const MAX_FRAME = 1024 * 1024;
+const MAX_FRAME = 24 * 1024 * 1024;
+const MAX_FILE = 16 * 1024 * 1024;
 
 class FileChannel extends EventEmitter {
   constructor(transport, timeout = 15000) {
@@ -85,7 +86,11 @@ class FileChannel extends EventEmitter {
         }
       });
       const hello = await this.send("hello", {});
-      if (hello.version !== 1 || !hello.readonly) {
+      if (
+        hello.version !== 2 ||
+        !hello.capabilities?.read ||
+        !hello.capabilities?.write
+      ) {
         fail(new Error("Unsupported remote file protocol"));
         throw new Error("Unsupported remote file protocol");
       }
@@ -166,6 +171,13 @@ function relative(root, file) {
       code: "NoPermissions",
     });
   return rel;
+}
+function entryNameError(name) {
+  if (typeof name !== "string" || !name.trim())
+    return "Enter a file or folder name";
+  if (name === "." || name === ".." || /[\x00-\x1f\x7f/\\]/.test(name))
+    return "Enter a name without path separators or control characters";
+  if (Buffer.byteLength(name, "utf8") > 255) return "The name is too long";
 }
 class RemoteFiles extends EventEmitter {
   constructor(transport, { interval = 1200, timeout = 15000 } = {}) {
@@ -274,6 +286,38 @@ class RemoteFiles extends EventEmitter {
   }
   list(file, offset = 0) {
     return this.call(file, "list", { offset, limit: 200 });
+  }
+  async create(file, kind, root) {
+    const error = entryNameError(path.basename(file));
+    if (error) throw new Error(error);
+    if (!["file", "directory"].includes(kind))
+      throw new Error("Unknown entry type");
+    const result = await this.call(file, "create", { kind }, root);
+    this.emit("change", file, { type: "created" });
+    return result;
+  }
+  async write(file, data, options, root) {
+    if (data.byteLength > MAX_FILE)
+      throw new Error("Files larger than 16 MiB cannot be saved");
+    const result = await this.call(
+      file,
+      "write",
+      {
+        data: Buffer.from(data).toString("base64"),
+        create: Boolean(options.create),
+        overwrite: Boolean(options.overwrite),
+      },
+      root,
+    );
+    this.emit("change", file, { type: result.created ? "created" : "changed" });
+    return result;
+  }
+  async mkdir(file, root) {
+    root ||= this.rootFor(file);
+    const result = await this.call(file, "mkdir", {}, root);
+    for (const rel of result.createdPaths)
+      this.emit("change", path.join(root, rel), { type: "created" });
+    return result;
   }
   async chunk(file, offset, length, root) {
     const r = await this.call(file, "read", { offset, length }, root);
@@ -418,4 +462,4 @@ class RemoteFiles extends EventEmitter {
     this.removeAllListeners();
   }
 }
-module.exports = { FileChannel, RemoteFiles, relative };
+module.exports = { FileChannel, RemoteFiles, relative, entryNameError };
