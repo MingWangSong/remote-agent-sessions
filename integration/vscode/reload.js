@@ -74,9 +74,18 @@ exports.run = async () => {
     const ordinary = vscode.window.createTerminal({ name: 'Ordinary persistent terminal', shellPath: '/bin/sh',
       location: { viewColumn: vscode.ViewColumn.One }, isTransient: false });
     ordinary.show();
+    // Terminal.show queues a workbench focus request. Wait until that request
+    // has completed before issuing a second focus request for another editor.
+    await waitFor(() => vscode.window.activeTerminal === ordinary &&
+      vscode.window.tabGroups.activeTabGroup.activeTab?.label === ordinary.name);
     await vscode.commands.executeCommand('workbench.action.closePanel');
     terminalNamed(state.secondName).show();
-    await waitFor(() => api.terminalStatus.text.includes(second.host.label));
+    try {
+      await waitFor(() => api.terminalStatus.text.includes(second.host.label));
+    } catch(error) {
+      throw new Error(error.message + '\n' + JSON.stringify({status:api.terminalStatus.text,
+        activeTerminal:vscode.window.activeTerminal?.name,layout:layout()}));
+    }
     await waitFor(async () => (await first.tmux.list()).find(session => session.name === state.records[0].tmuxSession)?.attached === 1);
     await waitFor(async () => (await second.tmux.list()).find(session => session.name === state.records[1].tmuxSession)?.attached === 1);
     await reload();
