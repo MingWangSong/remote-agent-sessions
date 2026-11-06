@@ -22,14 +22,14 @@ TmuxDock turns remote tmux sessions into a workspace you can browse, reconnect t
 
 Right-click a session and select **Show Session Files** to open its fixed working directory in the native right sidebar. Keep your current theme and file icons, edit files in VS Code's native editor and save them directly to the host, and pin the tree when you want it to stay put.
 
-- **New File… / New Folder…** create entries in the selected folder or working root without overwriting existing names. Native Save stages content before atomic replacement.
+- **New File… / New Folder…** create entries in the working root from the toolbar, or a specific directory from its context menu without overwriting existing names. Native Save stages content before atomic replacement.
 - **Preview HTML** renders linked CSS, JavaScript and images, with automatic reload after remote saves.
 - **Preview Markdown** uses the Markdown renderer already built into VS Code.
-- **Upload Files… / Download File…** reuse your local OpenSSH client. Uploads confirm replacement; transfers show progress and can be cancelled.
+- **Upload Files / Folders… / Download File…** reuse your local OpenSSH client. Drop desktop files or complete folders onto the root or subdirectories to upload. Drag tree entries between directories to move them. Moves reject collisions; folder uploads never merge existing folders. Regular-file replacements ask first; transfers show progress and can be cancelled.
 
 Every HTML or Markdown preview opens a new permanent tab in your current editor group. Existing previews stay on their own file when sessions change, and the extension never creates a split automatically.
 
-New sessions retain their initial root across directory changes and recovery. Older sessions can **Link Working Directory** once. Files and HTML previews restore after Reload Window. The feature requires Python 3 on the Linux/macOS host; OpenSSH 9+ is recommended for SFTP file transfers. Native reads and saves support files up to 16 MiB; child symlinks and framework dev-server/HMR proxying are outside this first version.
+New sessions retain their initial root across directory changes and recovery. Older sessions automatically freeze their saved or active pane directory on first use; **Link Working Directory** can change it without enabling recovery, even for unmanaged tmux sessions. Files and HTML previews restore after Reload Window. The feature requires Python 3 on the Linux/macOS host; OpenSSH 9+ is recommended for SFTP file transfers. Native reads and saves support files up to 16 MiB; child symlinks and framework dev-server/HMR proxying are outside this first version.
 
 ## Stop a session. Keep its context.
 

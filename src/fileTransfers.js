@@ -22,12 +22,58 @@ function scp(ssh, source, destination, signal, launch = spawn) {
     child.stderr.on("data", (data) => {
       detail = (detail + data).slice(-2000);
     });
-    child.once("error", reject);
+    let failure;
+    child.once("error", (error) => {
+      failure = error;
+    });
     child.once("close", (code) =>
-      code === 0
-        ? resolve()
-        : reject(new Error(detail.trim() || "OpenSSH file transfer failed")),
+      failure
+        ? reject(failure)
+        : code === 0
+          ? resolve()
+          : reject(new Error(detail.trim() || "OpenSSH file transfer failed")),
     );
+  });
+}
+function batchPath(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value))
+    throw new Error("File transfer paths cannot contain control characters");
+  // OpenSSH's quoted argument parser also makes glob characters literal.
+  return '"' + value.replace(/[\\"]/g, "\\$&") + '"';
+}
+function put(ssh, source, destination, options = {}, launch = spawn) {
+  options.signal?.throwIfAborted();
+  remote(ssh, destination);
+  const batch = `@put ${options.directory ? "-R " : ""}${batchPath(source)} ${batchPath(destination)}\n`;
+  const program = path.join(
+    path.dirname(ssh.sshPath),
+    process.platform === "win32" ? "sftp.exe" : "sftp",
+  );
+  return new Promise((resolve, reject) => {
+    const child = launch(
+      program,
+      ["-b", "-", "-S", ssh.sshPath, ...ssh.baseArgs(), "--", ssh.host.sshHost],
+      { stdio: ["pipe", "ignore", "pipe"], signal: options.signal },
+    );
+    let detail = "",
+      failure;
+    child.stderr.on("data", (data) => {
+      detail = (detail + data).slice(-2000);
+    });
+    child.stdin.on("error", (error) => {
+      failure ||= error;
+    });
+    child.once("error", (error) => {
+      failure = error;
+    });
+    child.once("close", (code) =>
+      failure
+        ? reject(failure)
+        : code === 0
+          ? resolve()
+          : reject(new Error(detail.trim() || "OpenSSH upload failed")),
+    );
+    child.stdin.end(batch);
   });
 }
 function remote(ssh, file, glob = false) {
@@ -72,4 +118,4 @@ async function download(ssh, source, destination, signal, copy = scp) {
     await fs.rm(temporary, { force: true });
   }
 }
-module.exports = { upload, download, scp, remote };
+module.exports = { upload, download, scp, remote, put, batchPath };

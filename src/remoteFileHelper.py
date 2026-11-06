@@ -1,5 +1,5 @@
 # Descriptor-relative file service over a private OpenSSH stdio channel.
-import os, sys, stat, json, struct, base64, uuid, hashlib, signal
+import os, sys, stat, json, struct, base64, uuid, hashlib, signal, ctypes, re
 MAX_FILE = 16 * 1024 * 1024
 MAX_FRAME = 24 * 1024 * 1024
 roots = {}
@@ -128,6 +128,67 @@ def make_directories(p):
         return {**info(os.fstat(fd)), 'createdPaths': created}
     finally: os.close(fd)
 
+def rename_exclusive(srcfd, src, dstfd, dst):
+    libc = ctypes.CDLL(None, use_errno=True)
+    name, flag = ('renameatx_np', 4) if sys.platform == 'darwin' else ('renameat2', 1)
+    fn = getattr(libc, name, None)
+    if fn is None: raise PermissionError('This host does not support atomic moves without replacing files')
+    fn.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    fn.restype = ctypes.c_int
+    if fn(srcfd, os.fsencode(src), dstfd, os.fsencode(dst), flag):
+        code = ctypes.get_errno(); raise OSError(code, os.strerror(code))
+
+def rename_entry(p):
+    source = parts(p.get('path', '')); destination = parts(p.get('destination', ''))
+    if not source or not destination: raise PermissionError('The workspace root cannot be moved or replaced')
+    if destination[:len(source)] == source: raise PermissionError('A directory cannot be moved into itself')
+    srcfd, src = parent_path(p)
+    try:
+        before = os.stat(src, dir_fd=srcfd, follow_symlinks=False)
+        if not (stat.S_ISREG(before.st_mode) or stat.S_ISDIR(before.st_mode)):
+            raise PermissionError('Only regular files and directories can be moved')
+        dstfd, dst = parent_path({**p, 'path': p['destination']})
+        try:
+            try: existing = os.stat(dst, dir_fd=dstfd, follow_symlinks=False)
+            except FileNotFoundError: existing = None
+            if existing and p.get('overwrite'):
+                if not (stat.S_ISREG(before.st_mode) and stat.S_ISREG(existing.st_mode)):
+                    raise PermissionError('Only regular files can be replaced')
+                if p.get('expectedDestination') and info(existing)['signature'] != p['expectedDestination']:
+                    raise PermissionError('The destination changed during upload; retry after reviewing it')
+                os.replace(src, dst, src_dir_fd=srcfd, dst_dir_fd=dstfd)
+            else: rename_exclusive(srcfd, src, dstfd, dst)
+            return {**info(os.stat(dst, dir_fd=dstfd, follow_symlinks=False)), 'replaced': existing is not None}
+        finally: os.close(dstfd)
+    finally: os.close(srcfd)
+
+def discard_upload(p):
+    fd, name = parent_path(p)
+    def remove(parent, leaf):
+        before = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+        if stat.S_ISDIR(before.st_mode):
+            child = os.open(leaf, DIR, dir_fd=parent)
+            try:
+                if (os.fstat(child).st_dev, os.fstat(child).st_ino) != (before.st_dev, before.st_ino):
+                    raise PermissionError('Upload staging directory changed')
+                for entry in os.listdir(child): remove(child, entry)
+                current = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+                if (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
+                    raise PermissionError('Upload staging directory changed')
+                os.rmdir(leaf, dir_fd=parent)
+            finally: os.close(child)
+        else: os.unlink(leaf, dir_fd=parent)
+    try:
+        if not re.fullmatch(r'\.tmuxdock-upload-[a-f0-9-]{36}', name):
+            raise PermissionError('Only an owned upload staging directory can be removed')
+        s = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        expected = p.get('signature', '').split(':')[:2]
+        if not stat.S_ISDIR(s.st_mode) or expected != [str(s.st_dev), str(s.st_ino)]:
+            raise PermissionError('Upload staging directory changed')
+        remove(fd, name)
+        return True
+    finally: os.close(fd)
+
 def perform(m):
     op = m['op']; p = m.get('params', {})
     if op == 'hello': return {'version': 2, 'capabilities': {'read': True, 'create': True, 'write': True}}
@@ -145,6 +206,8 @@ def perform(m):
     if op == 'create': return create_entry(p)
     if op == 'write': return write_file(p)
     if op == 'mkdir': return make_directories(p)
+    if op == 'rename': return rename_entry(p)
+    if op == 'discardUpload': return discard_upload(p)
     if op == 'snapshot':
         checked = open_path(p['root'], ''); os.close(checked)
         paths = p.get('paths', [])

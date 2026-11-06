@@ -4,7 +4,9 @@ const path = require("node:path").posix;
 const { randomBytes } = require("node:crypto");
 const { RemoteFiles, relative, entryNameError } = require("./remoteFiles");
 const { HtmlPreviews } = require("./htmlPreviews");
+const { SessionFileRoots } = require("./sessionFileRoots");
 const transfers = require("./fileTransfers");
+const { SessionFileActions } = require("./sessionFileActions");
 const SCHEME = "tmuxdock-remote";
 function uri(host, file) {
   return vscode.Uri.from({ scheme: SCHEME, authority: host, path: file });
@@ -26,6 +28,16 @@ class SessionWorkspace {
     this.provider = provider;
     this.chooseDirectory = chooseDirectory;
     this.services = new Map();
+    this.fileRoots = new SessionFileRoots(
+      context.workspaceState,
+      require("node:path").join(
+        context.globalStorageUri.fsPath,
+        "session-file-roots.json",
+      ),
+    );
+    this.collapsedRoots = new Set(
+      context.workspaceState.get("workspace.collapsedRoots", []),
+    );
     this.treeWatches = new Map();
     this.documents = new Map();
     this.transferAborts = new Set();
@@ -41,8 +53,11 @@ class SessionWorkspace {
     this.treeEmitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.treeEmitter.event;
     this.fileEmitter = new vscode.EventEmitter();
+    this.actions = new SessionFileActions(this);
     this.view = vscode.window.createTreeView("remoteAgentSessions.files", {
       treeDataProvider: this,
+      dragAndDropController: this.actions,
+      canSelectMany: true,
       showCollapseAll: true,
     });
     context.subscriptions.push(
@@ -66,6 +81,12 @@ class SessionWorkspace {
       }),
       this.view.onDidExpandElement((e) => {
         this.expanded.add(e.element.uri.toString());
+        if (e.element.isWorkspaceRoot) {
+          this.collapsedRoots.delete(e.element.uri.toString());
+          context.workspaceState.update("workspace.collapsedRoots", [
+            ...this.collapsedRoots,
+          ]);
+        }
         context.workspaceState.update(
           "workspace.expanded",
           [...this.expanded].slice(-200),
@@ -74,6 +95,12 @@ class SessionWorkspace {
       this.view.onDidCollapseElement((e) => {
         const key = e.element.uri?.toString();
         this.expanded.delete(key);
+        if (e.element.isWorkspaceRoot) {
+          this.collapsedRoots.add(key);
+          context.workspaceState.update("workspace.collapsedRoots", [
+            ...this.collapsedRoots,
+          ]);
+        }
         context.workspaceState.update(
           "workspace.expanded",
           [...this.expanded].slice(-200),
@@ -136,7 +163,12 @@ class SessionWorkspace {
     register("pinFiles", () => {
       this.pinned = !this.pinned;
       context.workspaceState.update("workspace.pinned", this.pinned);
+      if (!this.pinned && this.followTarget) this.select(...this.followTarget);
       this.updateTitle();
+    });
+    register("followFiles", () => {
+      this.pinned = true;
+      return vscode.commands.executeCommand("remoteAgentSessions.pinFiles");
     });
     register("openFile", (item) => this.openFile(item));
     register("newFile", (item) => this.createEntry(item, "file"));
@@ -202,10 +234,8 @@ class SessionWorkspace {
       const c = this.provider.controllers.find(
         (c) => c.host.id === this.current.controller.host.id,
       );
-      const r = c?.manager.records.find(
-        (r) => r.id === this.current.record?.id,
-      );
-      if (!c || (this.current.record && !r)) {
+      const next = this.fileRoots.find(c, this.current.entry.id);
+      if (!next) {
         this.current = null;
         this.key = null;
         this.generation++;
@@ -213,9 +243,7 @@ class SessionWorkspace {
         this.cache.clear();
         this.updateTitle();
         this.treeEmitter.fire();
-      } else if (r) {
-        this.select(c, { ...this.current.entry, record: r }, true);
-      }
+      } else this.select(c, next.entry, true);
     }
     this.previews.reconcile();
     for (const [id, service] of this.services) {
@@ -233,13 +261,7 @@ class SessionWorkspace {
         this.services.delete(id);
         continue;
       }
-      service.setRoots(
-        new Set(
-          c.manager.records
-            .filter((r) => r.workspaceRoot)
-            .map((r) => path.resolve(r.workspaceRoot)),
-        ),
-      );
+      service.setRoots(this.fileRoots.roots(c));
     }
   }
   service(controller) {
@@ -325,13 +347,7 @@ class SessionWorkspace {
         }
       });
     }
-    files.setRoots(
-      new Set(
-        controller.manager.records
-          .filter((r) => r.workspaceRoot)
-          .map((r) => path.resolve(r.workspaceRoot)),
-      ),
-    );
+    files.setRoots(this.fileRoots.roots(controller));
     return files;
   }
   access(resource) {
@@ -397,9 +413,7 @@ class SessionWorkspace {
       delete: () => {
         throw vscode.FileSystemError.NoPermissions();
       },
-      rename: () => {
-        throw vscode.FileSystemError.NoPermissions();
-      },
+      rename: (a, b, options) => wrap(() => self.actions.rename(a, b, options)),
       createDirectory: (u) => wrap(() => self.access(u).mkdir(u.path)),
     };
   }
@@ -418,21 +432,18 @@ class SessionWorkspace {
     const c = this.provider.controllers.find(
       (c) => c.host.id === saved?.hostId,
     );
-    const r = c?.manager.records.find((r) => r.id === saved?.sessionId);
-    if (c && r) this.select(c, { id: r.id, record: r, title: r.title }, true);
+    const target = this.fileRoots.find(c, saved?.sessionId);
+    if (target) this.select(c, target.entry, true);
     for (const d of vscode.workspace.textDocuments) this.watchDocument(d);
     this.resolveReady();
   }
   select(controller, entry, force = false) {
+    if (!force) this.followTarget = [controller, entry];
     if (!this.enabled || this.disposed || (!force && this.pinned)) return;
     controller =
       this.provider.controllers.find((c) => c.host.id === controller.host.id) ||
       controller;
-    const record =
-      controller.manager.records.find(
-        (r) => r.id === (entry.record?.id || entry.id),
-      ) || entry.record;
-    const next = { controller, entry, record, root: record?.workspaceRoot };
+    const next = this.fileRoots.context(controller, entry);
     const key = controller.host.id + ":" + entry.id + ":" + (next.root || "");
     if (key === this.key) {
       this.current = next;
@@ -464,22 +475,38 @@ class SessionWorkspace {
         return;
       } catch {}
     }
-    const r = c.manager.records.find(
-      (r) =>
-        r.workspaceRoot &&
-        (() => {
-          try {
-            relative(r.workspaceRoot, resource.path);
-            return true;
-          } catch {
-            return false;
-          }
-        })(),
-    );
-    if (r) this.select(c, { id: r.id, record: r, title: r.title });
+    const candidates = [
+      ...c.manager.records.map((record) =>
+        this.fileRoots.context(
+          c,
+          { id: record.id, record, title: record.title },
+          false,
+        ),
+      ),
+      ...[...this.fileRoots.links.values()]
+        .filter((link) => !link.managed)
+        .map((link) => this.fileRoots.find(c, link.sessionId))
+        .filter(Boolean),
+    ];
+    const owner = candidates.find((candidate) => {
+      try {
+        if (!candidate.root) return false;
+        relative(candidate.root, resource.path);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (owner) this.select(c, owner.entry);
   }
+
   updateTitle() {
     const c = this.current;
+    vscode.commands.executeCommand(
+      "setContext",
+      "tmuxdock.filesPinned",
+      this.pinned,
+    );
     this.view.description = c
       ? `${this.pinned ? "Pinned · " : ""}${c.controller.host.label} · ${c.record?.title || c.entry.title}`
       : "Select a session";
@@ -495,6 +522,20 @@ class SessionWorkspace {
     for (const w of this.treeWatches.values()) w.dispose();
     this.treeWatches.clear();
   }
+  rootItem() {
+    const c = this.current;
+    if (!this.enabled || !c?.root) return;
+    if (!this.rootNode || this.rootNode.key !== this.key)
+      this.rootNode = {
+        key: this.key,
+        isWorkspaceRoot: true,
+        type: "directory",
+        name: path.basename(c.root) || c.root,
+        uri: uri(c.controller.host.id, c.root),
+      };
+    this.rootNode.context = c;
+    return this.rootNode;
+  }
   getParent(item) {
     return item.parentNode;
   }
@@ -507,7 +548,11 @@ class SessionWorkspace {
     const t = new vscode.TreeItem(
       item.name,
       item.type === "directory"
-        ? this.expanded.has(item.uri.toString())
+        ? (
+            item.isWorkspaceRoot
+              ? !this.collapsedRoots.has(item.uri.toString())
+              : this.expanded.has(item.uri.toString())
+          )
           ? vscode.TreeItemCollapsibleState.Expanded
           : vscode.TreeItemCollapsibleState.Collapsed
         : vscode.TreeItemCollapsibleState.None,
@@ -551,6 +596,7 @@ class SessionWorkspace {
           },
         },
       ];
+    if (!parent) return [this.rootItem()];
     const generation = this.generation;
     const root = parent || {
       uri: uri(c.controller.host.id, c.root),
@@ -590,7 +636,11 @@ class SessionWorkspace {
       }
       if (generation !== this.generation) return [];
       const entries = list
-        .filter((e) => ![".git", "node_modules"].includes(e.name))
+        .filter(
+          (e) =>
+            ![".git", "node_modules"].includes(e.name) &&
+            !/^\.tmuxdock-upload-[a-f0-9-]{36}$/.test(e.name),
+        )
         .map((e) => ({
           ...e,
           uri: uri(c.controller.host.id, path.join(root.uri.path, e.name)),
@@ -624,21 +674,22 @@ class SessionWorkspace {
       this.select(item.controller, item.entry, true);
     const c = this.current;
     if (!c) throw new Error("Select a session first");
-    if (!c.record)
-      throw new Error(
-        "Use Enable Recovery to save this existing session before linking its directory",
-      );
-    const root = await this.chooseDirectory(c.controller, c.record.cwd);
+    const root = await this.chooseDirectory(
+      c.controller,
+      c.root || c.record?.cwd,
+    );
     if (!root) return;
-    await c.controller.manager.edit(c.record, (r) => {
-      r.workspaceRoot = root;
-      r.rootSource = "explicit";
-    });
+    if (c.record)
+      await c.controller.manager.edit(c.record, (r) => {
+        r.workspaceRoot = root;
+        r.rootSource = "explicit";
+      });
+    else await this.fileRoots.save(c.controller, c.entry, root);
     this.select(
       c.controller,
       {
         ...c.entry,
-        record: c.controller.manager.records.find((r) => r.id === c.record.id),
+        record: c.controller.manager.records.find((r) => r.id === c.record?.id),
       },
       true,
     );
@@ -662,7 +713,8 @@ class SessionWorkspace {
     });
   }
   async createEntry(item, kind) {
-    const selected = item || this.view.selection[0];
+    // Toolbar/command-palette actions always target the session root.
+    const selected = item || this.rootItem();
     const c = item?.context || this.current;
     if (!this.enabled || !c?.root)
       throw new Error("Select a linked session directory first");
@@ -672,7 +724,9 @@ class SessionWorkspace {
         ? selected
         : null;
     const parent =
-      candidate?.type === "directory" ? candidate : candidate?.parentNode;
+      candidate?.type === "directory"
+        ? candidate
+        : candidate?.parentNode || this.rootItem();
     const directory = parent?.uri.path || c.root;
     relative(c.root, directory);
     const name = await this.askEntryName(kind, directory);
@@ -749,62 +803,14 @@ class SessionWorkspace {
     );
   }
   async uploadFiles(item) {
-    const c = item?.context || this.current;
-    if (!this.enabled || !c?.root)
-      throw new Error("Select a linked session directory first");
-    const directory = item?.type === "directory" ? item.uri.path : c.root;
-    relative(c.root, directory);
-    const service = this.service(c.controller);
+    this.actions.target(item);
     const selected = await vscode.window.showOpenDialog({
       canSelectFiles: true,
-      canSelectFolders: false,
+      canSelectFolders: true,
       canSelectMany: true,
-      openLabel: "Upload files",
+      openLabel: "Upload files or folders",
     });
-    if (!selected?.length) return;
-    for (const local of selected) {
-      if (local.scheme !== "file")
-        throw new Error("Choose a local file to upload");
-      const destination = path.join(
-        directory,
-        require("node:path").basename(local.fsPath),
-      );
-      relative(c.root, destination);
-      let exists;
-      try {
-        exists = await service.stat(destination, c.root);
-      } catch (error) {
-        if (error.code !== "NotFound") throw error;
-      }
-      if (exists) {
-        if (exists.type !== "file")
-          throw new Error("The destination is not a regular file");
-        if (
-          (await vscode.window.showWarningMessage(
-            `Replace ${path.basename(destination)} on ${c.controller.host.label}?`,
-            { modal: true },
-            "Replace",
-          )) !== "Replace"
-        )
-          continue;
-      }
-      const completed = await this.transfer(
-        "Uploading " + path.basename(destination),
-        async (signal) => {
-          await service.stat(directory, c.root);
-          await transfers.upload(
-            c.controller.ssh,
-            local.fsPath,
-            destination,
-            signal,
-          );
-        },
-      );
-      if (!completed) break;
-    }
-    this.cache.clear();
-    this.treeEmitter.fire();
-    service.retryNow();
+    if (selected?.length) return this.actions.upload(selected, item);
   }
   async downloadFile(item) {
     if (!item?.uri || item.type !== "file")

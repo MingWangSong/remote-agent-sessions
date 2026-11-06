@@ -319,6 +319,48 @@ class RemoteFiles extends EventEmitter {
       this.emit("change", path.join(root, rel), { type: "created" });
     return result;
   }
+  async move(source, destination, options = {}, root) {
+    root ||= [...this.roots]
+      .sort((a, b) => b.length - a.length)
+      .find((candidate) => {
+        try {
+          relative(candidate, source);
+          relative(candidate, destination);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    if (!root)
+      throw Object.assign(new Error("Move files within one linked directory"), {
+        code: "NoPermissions",
+      });
+    for (const linked of this.roots) {
+      if (linked === source || linked.startsWith(source + "/"))
+        throw Object.assign(
+          new Error("A linked working directory cannot be moved"),
+          { code: "NoPermissions" },
+        );
+    }
+    const result = await this.call(
+      source,
+      "rename",
+      {
+        destination: relative(root, destination),
+        overwrite: Boolean(options.overwrite),
+        expectedDestination: options.expectedDestination,
+      },
+      root,
+    );
+    this.emit("change", source, { type: "deleted" });
+    this.emit("change", destination, {
+      type: result.replaced ? "changed" : "created",
+    });
+    return result;
+  }
+  discardUpload(file, signature, root) {
+    return this.call(file, "discardUpload", { signature }, root);
+  }
   async chunk(file, offset, length, root) {
     const r = await this.call(file, "read", { offset, length }, root);
     return { ...r, data: Buffer.from(r.data, "base64") };

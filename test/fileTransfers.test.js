@@ -127,3 +127,46 @@ test("OpenSSH transfer reuses connection options, keeps paths out of a shell and
   );
   assert.throws(() => remote(client, "/remote/a\nput unsafe"), /line breaks/);
 });
+test(
+  "SFTP recursively uploads literal paths, empty folders and binary files without following links",
+  { skip: process.platform === "win32" },
+  async (t) => {
+    const server = [
+      "/usr/libexec/sftp-server",
+      "/usr/lib/openssh/sftp-server",
+    ].find((file) => require("node:fs").existsSync(file));
+    if (!server) return t.skip("Local OpenSSH SFTP server is not installed");
+    const dir = await fixture(t),
+      source = path.join(dir, '文档 [a]*? \\ " #'),
+      target = path.join(dir, 'uploaded [x]*? \\ " #');
+    await fs.mkdir(path.join(source, "empty"), { recursive: true });
+    await fs.writeFile(
+      path.join(source, "binary.dat"),
+      Buffer.from([0, 255, 128, 1]),
+    );
+    await fs.writeFile(path.join(dir, "private"), "must not upload");
+    await fs.symlink(path.join(dir, "private"), path.join(source, "link"));
+    const { put, batchPath } = require("../src/fileTransfers");
+    const launch = (_program, args, options) => {
+      assert.ok(args.includes("-b"));
+      assert.ok(args.includes("ControlMaster=auto"));
+      return spawn("sftp", ["-D", server, "-b", "-", "fixture"], options);
+    };
+    await put(ssh(), source, target, { directory: true }, launch);
+    assert.ok((await fs.stat(path.join(target, "empty"))).isDirectory());
+    assert.deepEqual(
+      await fs.readFile(path.join(target, "binary.dat")),
+      Buffer.from([0, 255, 128, 1]),
+    );
+    await assert.rejects(fs.stat(path.join(target, "link")), {
+      code: "ENOENT",
+    });
+    const fileTarget = path.join(dir, 'one [x]*? \\ " #.dat');
+    await put(ssh(), path.join(source, "binary.dat"), fileTarget, {}, launch);
+    assert.deepEqual(
+      await fs.readFile(fileTarget),
+      Buffer.from([0, 255, 128, 1]),
+    );
+    assert.throws(() => batchPath("file\n!touch /tmp/unsafe"), /control/);
+  },
+);

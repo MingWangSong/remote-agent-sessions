@@ -62,7 +62,9 @@ exports.run = async () => {
       c.manager.entries.find((e) => e.id === r.id),
     );
     await vscode.commands.executeCommand("remoteAgentSessions.showFiles");
-    const items = await api.sessionWorkspace.getChildren();
+    const items = await api.sessionWorkspace.getChildren(
+      api.sessionWorkspace.rootItem(),
+    );
     const note = items.find((e) => e.name === "note.txt");
     await api.sessionWorkspace.openFile(note);
     await api.sessionWorkspace.openFile(note);

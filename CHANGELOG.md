@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.2.0 — 2026-11-06
+
+- Add native tree drag-and-drop: move files and folders within a linked session root, or drop local files and complete folders onto the root, any subdirectory or empty tree space to upload. Reuse WorkspaceEdit for native editor moves and OpenSSH SFTP for recursive transfers.
+- Show an actionable root row. Toolbar New File/New Folder always use the session root; directory context actions use that directory.
+- Allow legacy and unmanaged sessions to browse, link and edit files without enabling recovery. Freeze a legacy session’s saved/current directory on first use, preserving explicit roots and recovery ownership.
+- Stage uploads before committing, reject folder merges and move collisions, confirm regular-file replacement, detect destination changes during uploads, and clean owned staging directories after completion/cancellation.
+- Retarget independent HTML/Markdown previews after moves without adding editor groups. Clarify file-tree pin/follow actions and retain existing recovery behavior.
+
 ## 3.1.0 — 2026-11-06
 
 - Add New File and New Folder actions to Session Files, including root toolbar actions and creation inside selected directories. Reject existing names without overwriting their contents.

@@ -23,9 +23,9 @@
 
 ## Agent、文件、预览放在一个窗口
 
-右键会话 → **Show Session Files**，在右侧查看固定工作目录。切换 session 标签时目录随之切换，也可通过 **Toggle Follow Session** 固定当前目录。新会话把初始化目录保存为固定根目录；终端后续 `cd` 和 Delete / Restore 都不改变它。旧会话可用 **Link Working Directory** 手动关联一次。
+右键会话 → **Show Session Files**，在右侧查看固定工作目录。切换 session 标签时目录随之切换，也可通过 **Pin File Tree** 固定当前目录，**Follow Active Session** 恢复跟随。新会话把初始化目录保存为固定根目录；终端后续 `cd` 和 Delete / Restore 都不改变它。旧会话首次使用时自动固定已保存目录或当前活动分屏目录；也可用 **Link Working Directory** 修改，无需启用恢复功能。
 
-文件单击用 VS Code 原生编辑器打开。目录右键可 **Upload Files…**，文件右键可 **Download File…**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview Markdown**。不堆叠 Git、Timeline、删除和重命名等菜单。
+文件单击用 VS Code 原生编辑器打开。目录右键可 **Upload Files / Folders…**，文件右键可 **Download File…**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview Markdown**。目录树内可把文件、文件夹拖入其他目录，拖回根目录行即可移回根目录；从桌面拖入文件或整个文件夹，可直接上传到根目录、子目录或空白区域。标题栏新建始终作用于根目录，目录右键新建作用于该目录。移动不覆盖同名目标，文件夹上传不合并已有目录。
 
 HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载资源后自动重载；HTML 和 Markdown 每次预览都在当前编辑器分组新建独立标签，切换 session 不覆盖旧预览；不会自动分屏，Reload Window 后保留布局。Markdown 直接使用 VS Code 自带预览。
 

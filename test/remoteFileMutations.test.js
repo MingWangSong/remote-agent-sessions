@@ -190,3 +190,73 @@ test("an Agent change during a save is preserved and reported instead of overwri
   assert.equal(await fs.readFile(file, "utf8"), "new Agent contents");
   assert.deepEqual(await fs.readdir(f.root), ["report.txt"]);
 });
+test("moves are atomic, never merge/overwrite, and cannot move roots or escape through links", async (t) => {
+  const f = await fixture(t);
+  const source = path.join(f.root, "source"),
+    target = path.join(f.root, "target");
+  await fs.mkdir(source);
+  await fs.mkdir(target);
+  await fs.writeFile(path.join(source, "报告 [a].md"), "keep");
+  const old = path.join(source, "报告 [a].md"),
+    next = path.join(target, "报告 [a].md");
+  await f.files.move(old, next);
+  assert.equal(await fs.readFile(next, "utf8"), "keep");
+  await fs.writeFile(old, "original");
+  await assert.rejects(f.files.move(old, next), (e) => e.code === "FileExists");
+  assert.equal(await fs.readFile(old, "utf8"), "original");
+  assert.equal(await fs.readFile(next, "utf8"), "keep");
+  await assert.rejects(
+    f.files.move(source, path.join(source, "child")),
+    /itself/,
+  );
+  await assert.rejects(
+    f.files.move(source, target),
+    (e) => e.code === "FileExists",
+  );
+  await assert.rejects(
+    f.files.move(f.root, path.join(f.root, "root")),
+    /linked working directory/,
+  );
+  await fs.symlink(target, path.join(f.root, "link"));
+  await assert.rejects(f.files.move(old, path.join(f.root, "link", "escape")));
+  await assert.rejects(f.files.move(old, path.join(f.root, "..", "escape")));
+  await f.files.move(source, path.join(target, "source"));
+  assert.equal(
+    await fs.readFile(path.join(target, "source", "报告 [a].md"), "utf8"),
+    "original",
+  );
+});
+test("staged uploads reject changed destinations and cleanup only owned staging directories", async (t) => {
+  const f = await fixture(t);
+  const stage = path.join(
+    f.root,
+    ".tmuxdock-upload-" + require("node:crypto").randomUUID(),
+  );
+  const info = await f.files.create(stage, "directory");
+  await fs.mkdir(path.join(stage, "payload"));
+  await fs.writeFile(path.join(stage, "payload", "child"), "upload");
+  const outside = path.join(f.root, "keep.txt");
+  await fs.writeFile(outside, "keep");
+  await fs.symlink(outside, path.join(stage, "external-link"));
+  await assert.rejects(f.files.discardUpload(f.root, info.signature), /root/);
+  await assert.rejects(f.files.discardUpload(stage, "0:0"), /changed/);
+  await f.files.discardUpload(stage, info.signature);
+  assert.equal(await fs.readFile(outside, "utf8"), "keep");
+  const upload = path.join(f.root, "payload");
+  await fs.writeFile(upload, "new");
+  const before = await f.files.stat(outside);
+  await fs.writeFile(outside, "Agent updated");
+  await assert.rejects(
+    f.files.move(upload, outside, {
+      overwrite: true,
+      expectedDestination: before.signature,
+    }),
+    /changed during upload/,
+  );
+  assert.equal(await fs.readFile(outside, "utf8"), "Agent updated");
+  await f.files.move(upload, outside, {
+    overwrite: true,
+    expectedDestination: (await f.files.stat(outside)).signature,
+  });
+  assert.equal(await fs.readFile(outside, "utf8"), "new");
+});

@@ -50,7 +50,11 @@ exports.run = async (api, controller, check) => {
       );
       files.select(controller, entry(), true);
       await vscode.commands.executeCommand("remoteAgentSessions.showFiles");
-      const children = await files.getChildren();
+      const roots = await files.getChildren();
+      assert.equal(roots.length, 1);
+      assert.equal(roots[0].uri.path, root);
+      assert.equal(files.getTreeItem(roots[0]).contextValue, "remoteDirectory");
+      const children = await files.getChildren(roots[0]);
       assert.ok(children.some((e) => e.name === "index.html"));
       assert.ok(children.some((e) => e.name === "assets"));
       for (const [name, icon] of [
@@ -72,7 +76,7 @@ exports.run = async (api, controller, check) => {
   await check(
     "Markdown preview: reuses VS Code's built-in renderer and tracks remote document updates",
     async () => {
-      const item = (await files.getChildren()).find(
+      const item = (await files.getChildren(files.rootItem())).find(
         (e) => e.name === "README.md",
       );
       assert.equal(files.getTreeItem(item).contextValue, "remoteMarkdown");
@@ -106,7 +110,7 @@ exports.run = async (api, controller, check) => {
   await check(
     "Session files: native editing saves to the remote host and Agent replacements refresh the document",
     async () => {
-      const item = (await files.getChildren()).find(
+      const item = (await files.getChildren(files.rootItem())).find(
         (e) => e.name === "report.txt",
       );
       await files.openFile(item);
@@ -157,10 +161,16 @@ exports.run = async (api, controller, check) => {
       assert.ok(
         (await fs.stat(path.join(root, "created-folder"))).isDirectory(),
       );
-      const folder = (await files.getChildren()).find(
+      const folder = (await files.getChildren(files.rootItem())).find(
         (e) => e.name === "created-folder",
       );
       assert.ok(folder);
+      await files.view.reveal(folder, { select: true, focus: false });
+      await create("newFile", undefined, "root-created.txt");
+      assert.equal(
+        await fs.readFile(path.join(root, "root-created.txt"), "utf8"),
+        "",
+      );
       await create("newFile", folder, "created.md");
       const target = path.join(root, "created-folder", "created.md");
       assert.equal(await fs.readFile(target, "utf8"), "");
@@ -195,12 +205,12 @@ exports.run = async (api, controller, check) => {
     async () => {
       const groups = vscode.window.tabGroups.all.length;
       const column = vscode.window.tabGroups.activeTabGroup.viewColumn;
-      const first = (await files.getChildren()).find(
+      const first = (await files.getChildren(files.rootItem())).find(
         (e) => e.name === "README.md",
       );
       await fs.writeFile(path.join(root, "second.md"), "# Second document");
       files.cache.clear();
-      const second = (await files.getChildren()).find(
+      const second = (await files.getChildren(files.rootItem())).find(
         (e) => e.name === "second.md",
       );
       for (const item of [first, second, first])
@@ -263,12 +273,16 @@ exports.run = async (api, controller, check) => {
       await fs.writeFile(path.join(root, "new.txt"), "new");
       await wait(async () => {
         files.cache.clear();
-        return (await files.getChildren()).some((e) => e.name === "new.txt");
+        return (await files.getChildren(files.rootItem())).some(
+          (e) => e.name === "new.txt",
+        );
       });
       await fs.rm(path.join(root, "new.txt"));
       files.cache.clear();
       assert.equal(
-        (await files.getChildren()).some((e) => e.name === "new.txt"),
+        (await files.getChildren(files.rootItem())).some(
+          (e) => e.name === "new.txt",
+        ),
         false,
       );
     },
@@ -276,7 +290,7 @@ exports.run = async (api, controller, check) => {
   await check(
     "HTML preview: actual webview loads root-relative CSS, modules and fetch resources",
     async () => {
-      const item = (await files.getChildren()).find(
+      const item = (await files.getChildren(files.rootItem())).find(
         (e) => e.name === "index.html",
       );
       htmlPreview = await files.preview(item);
@@ -382,7 +396,7 @@ exports.run = async (api, controller, check) => {
     async () => {
       const groups = vscode.window.tabGroups.all.length;
       const column = vscode.window.tabGroups.activeTabGroup.viewColumn;
-      const item = (await files.getChildren()).find(
+      const item = (await files.getChildren(files.rootItem())).find(
         (e) => e.name === "index.html",
       );
       const originalServer = htmlPreview.server;
@@ -408,6 +422,7 @@ exports.run = async (api, controller, check) => {
       htmlPreview.panel.reveal(column);
     },
   );
+  await require("./workspaceActions").run(files, controller, root, check);
   await check(
     "Session files: cross-host switching isolates same-name files and ignores delayed directory responses",
     async () => {
@@ -456,13 +471,13 @@ exports.run = async (api, controller, check) => {
         return original.apply(firstService, args);
       };
       files.cache.clear();
-      const delayed = files.getChildren();
+      const delayed = files.getChildren(files.rootItem());
       files.select(
         second,
         second.manager.entries.find((e) => e.id === record2.id),
         true,
       );
-      const secondItems = await files.getChildren();
+      const secondItems = await files.getChildren(files.rootItem());
       release();
       assert.deepEqual(await delayed, []);
       firstService.list = original;
