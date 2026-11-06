@@ -160,6 +160,54 @@ exports.run = async (files, controller, root, check) => {
     },
   );
   await check(
+    "Session files: a delayed desktop drop retains its original directory across session switches",
+    async () => {
+      const other = await controller.manager.create({
+        title: "upload-switch",
+        cwd: path.join(root, "assets"),
+      });
+      const source = path.join(
+        process.env.RAS_TEST_DIRECTORY,
+        "switch-upload.txt",
+      );
+      await fs.writeFile(source, "original target");
+      const put = files.actions.putLocal;
+      files.actions.putLocal = async (_c, local, destination) =>
+        fs.copyFile(local, destination);
+      const transfer = new vscode.DataTransfer();
+      transfer.set("text/uri-list", {
+        asString: async () => {
+          files.select(
+            controller,
+            controller.manager.entries.find((e) => e.id === other.id),
+            true,
+          );
+          return vscode.Uri.file(source).toString();
+        },
+        asFile: () => undefined,
+      });
+      try {
+        assert.equal(
+          await files.actions.handleDrop(undefined, transfer, token),
+          true,
+        );
+        assert.equal(
+          await fs.readFile(path.join(root, "switch-upload.txt"), "utf8"),
+          "original target",
+        );
+        await assert.rejects(
+          fs.stat(path.join(root, "assets", "switch-upload.txt")),
+          { code: "ENOENT" },
+        );
+      } finally {
+        files.actions.putLocal = put;
+        files.select(controller, owner, true);
+        await controller.manager.deleteSession(other);
+        await controller.manager.forget(other);
+      }
+    },
+  );
+  await check(
     "Session files: moving HTML and Markdown preserves independent previews and editor groups",
     async () => {
       const folder = await item("assets"),
