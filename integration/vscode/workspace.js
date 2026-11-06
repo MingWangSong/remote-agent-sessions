@@ -327,8 +327,11 @@ exports.run = async (api, controller, check) => {
       assert.equal(htmlPreview.server, originalServer);
       assert.equal(originalServer.closed, false);
       assert.equal(vscode.window.tabGroups.all.length, groups);
-      assert.equal(second.panel.viewColumn, column);
-      assert.equal(third.panel.viewColumn, column);
+      await wait(
+        () =>
+          second.panel.viewColumn === column &&
+          third.panel.viewColumn === column,
+      );
       assert.notEqual(second.server.origin, third.server.origin);
       assert.ok(!third.panel.webview.html.includes('id="pin"'));
       const surviving = third.server;
