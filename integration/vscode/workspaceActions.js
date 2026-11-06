@@ -18,7 +18,7 @@ exports.run = async (files, controller, root, check) => {
   const drag = async (source, target) => {
     const data = new vscode.DataTransfer();
     files.actions.handleDrag(source, data, token);
-    assert.ok(data.has(MIME));
+    assert.ok(data.get(MIME));
     return files.actions.handleDrop(target, data, token);
   };
   await check(
@@ -27,6 +27,7 @@ exports.run = async (files, controller, root, check) => {
       const folder = await item("assets");
       const report = await item("report.txt");
       await files.openFile(report);
+      assert.equal(await drag([report], files.rootItem()), true);
       assert.equal(await drag([report], folder), true);
       const moved = path.join(root, "assets", "report.txt");
       assert.equal(await fs.readFile(moved, "utf8"), "generation two");
@@ -98,6 +99,24 @@ exports.run = async (files, controller, root, check) => {
           true,
         );
         const folder = await item("assets");
+        await fs.writeFile(
+          path.join(local, "native-file.txt"),
+          "native transfer",
+        );
+        const nativeData = new vscode.DataTransfer();
+        nativeData.set("application/octet-stream", {
+          asFile: () => ({
+            uri: vscode.Uri.file(path.join(local, "native-file.txt")),
+          }),
+        });
+        assert.equal(
+          await files.actions.handleDrop(files.rootItem(), nativeData, token),
+          true,
+        );
+        assert.equal(
+          await fs.readFile(path.join(root, "native-file.txt"), "utf8"),
+          "native transfer",
+        );
         assert.equal(await drop([path.join(local, "folder")], folder), true);
         assert.equal(
           await fs.readFile(path.join(root, "from-desktop.txt"), "utf8"),
