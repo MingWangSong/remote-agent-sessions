@@ -3,17 +3,9 @@ const vscode = require("vscode");
 const path = require("node:path").posix;
 const { randomBytes } = require("node:crypto");
 const { RemoteFiles, relative } = require("./remoteFiles");
-const { PreviewServer } = require("./previewService");
+const { HtmlPreviews } = require("./htmlPreviews");
 const transfers = require("./fileTransfers");
 const SCHEME = "tmuxdock-remote";
-const escape = (value) =>
-  String(value).replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
 function uri(host, file) {
   return vscode.Uri.from({ scheme: SCHEME, authority: host, path: file });
 }
@@ -43,9 +35,8 @@ class SessionWorkspace {
       context.workspaceState.get("workspace.expanded", []),
     );
     this.generation = 0;
-    this.previewGeneration = 0;
     this.pinned = context.workspaceState.get("workspace.pinned", false);
-    this.previewPinned = false;
+    this.previews = new HtmlPreviews(this);
     this.disposed = false;
     this.treeEmitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.treeEmitter.event;
@@ -140,7 +131,7 @@ class SessionWorkspace {
       this.cache.clear();
       this.treeEmitter.fire();
       for (const s of this.services.values()) s.retryNow();
-      if (this.panel) this.sendPreview("reload");
+      this.previews.refresh();
     });
     register("pinFiles", () => {
       this.pinned = !this.pinned;
@@ -162,69 +153,26 @@ class SessionWorkspace {
         !/\.(md|markdown)$/i.test(resource.path)
       )
         throw new Error("Select a Markdown file in Session Files");
-      const doc = await vscode.workspace.openTextDocument(resource);
+      // A unique document URI gives each explicit preview its own native tab,
+      // including repeated previews of the same file. File reads stay path-based.
+      const preview = resource.with({
+        query: "tmuxdockPreview=" + randomBytes(8).toString("hex"),
+      });
+      const doc = await vscode.workspace.openTextDocument(preview);
       this.watchDocument(doc);
       await vscode.commands.executeCommand(
-        "markdown.showPreviewToSide",
-        resource,
+        "vscode.openWith",
+        preview,
+        "vscode.markdown.preview.editor",
+        {
+          viewColumn: vscode.ViewColumn.Active,
+          preview: false,
+        },
       );
     });
     register("uploadFiles", (item) => this.uploadFiles(item));
     register("downloadFile", (item) => this.downloadFile(item));
-    register("openPreviewBrowser", async () => {
-      if (!this.previewUrl) return;
-      const commands = await vscode.commands.getCommands(true);
-      await vscode.commands.executeCommand(
-        commands.includes("workbench.action.browser.open")
-          ? "workbench.action.browser.open"
-          : "simpleBrowser.show",
-        this.previewUrl,
-      );
-    });
-    context.subscriptions.push(
-      vscode.window.registerWebviewPanelSerializer("tmuxdock.preview", {
-        deserializeWebviewPanel: async (panel, state) => {
-          await this.ready;
-          if (this.disposed) return;
-          this.attachPanel(panel);
-          this.previewPinned = Boolean(state?.pinned);
-          const c = provider.controllers.find(
-            (c) => c.host.id === state?.hostId,
-          );
-          const r = c?.manager.records.find((r) => r.id === state?.sessionId);
-          if (c && r && r.workspaceRoot === state.root) {
-            const saved = {
-              controller: c,
-              record: r,
-              entry: { id: r.id, title: r.title, record: r },
-              root: r.workspaceRoot,
-            };
-            const target =
-              !this.previewPinned && this.current ? this.current : saved;
-            const file =
-              target.controller.host.id === state.hostId &&
-              target.entry.id === state.sessionId
-                ? state.file
-                : this.context.workspaceState.get(
-                    "preview." +
-                      target.controller.host.id +
-                      ":" +
-                      target.entry.id,
-                  );
-            if (file && target.root)
-              await this.preview({
-                uri: uri(target.controller.host.id, file),
-                context: target,
-              });
-            else
-              this.emptyPreview(
-                "Select an HTML file in this session to preview.",
-              );
-          } else
-            this.emptyPreview("Choose a session and an HTML file to preview.");
-        },
-      }),
-    );
+    register("openPreviewBrowser", () => this.previews.openBrowser());
     this.reconcileTimer = setInterval(() => this.reconcile(), 2500);
     this.reconcileTimer.unref?.();
     this.setEnabled();
@@ -238,10 +186,9 @@ class SessionWorkspace {
       this.clearTreeWatches();
       for (const w of this.documents.values()) w.dispose();
       this.documents.clear();
-      this.closeServer();
+      this.previews.suspend();
       for (const s of this.services.values()) s.dispose();
       this.services.clear();
-      this.emptyPreview("Session Files is disabled.");
     }
     if (this.enabled)
       for (const doc of vscode.workspace.textDocuments) this.watchDocument(doc);
@@ -268,18 +215,7 @@ class SessionWorkspace {
         this.select(c, { ...this.current.entry, record: r }, true);
       }
     }
-    if (this.server && this.previewContext) {
-      const c = this.provider.controllers.find(
-        (c) => c.host.id === this.previewContext.controller.host.id,
-      );
-      const r = c?.manager.records.find(
-        (r) => r.id === this.previewContext.record?.id,
-      );
-      if (!r || r.workspaceRoot !== this.previewContext.root) {
-        this.closeServer();
-        this.emptyPreview("This session directory is no longer linked.");
-      }
-    }
+    this.previews.reconcile();
     for (const [id, service] of this.services) {
       const c = this.provider.controllers.find((c) => c.host.id === id);
       if (!c) {
@@ -324,17 +260,25 @@ class SessionWorkspace {
       ]);
       this.services.set(controller.host.id, files);
       files.on("change", (file, change) => {
-        this.fileEmitter.fire([
-          {
+        const resources = new Map();
+        const base = uri(controller.host.id, file);
+        resources.set(base.toString(), base);
+        for (const key of this.documents.keys()) {
+          const alias = vscode.Uri.parse(key);
+          if (alias.authority === base.authority && alias.path === base.path)
+            resources.set(key, alias);
+        }
+        this.fileEmitter.fire(
+          [...resources.values()].map((resource) => ({
             type:
               change?.type === "deleted"
                 ? vscode.FileChangeType.Deleted
                 : change?.type === "created"
                   ? vscode.FileChangeType.Created
                   : vscode.FileChangeType.Changed,
-            uri: uri(controller.host.id, file),
-          },
-        ]);
+            uri: resource,
+          })),
+        );
         for (const key of this.cache.keys())
           if (key.startsWith(controller.host.id + ":")) {
             const directory = key.slice(
@@ -505,21 +449,8 @@ class SessionWorkspace {
       hostId: controller.host.id,
       sessionId: entry.id,
     });
-    if (this.panel && !this.previewPinned) {
-      const saved = this.context.workspaceState.get(
-        "preview." + controller.host.id + ":" + entry.id,
-      );
-      if (saved && next.root)
-        this.preview({
-          uri: uri(controller.host.id, saved),
-          context: next,
-        }).catch((e) => this.emptyPreview(e.message));
-      else {
-        this.closeServer();
-        this.emptyPreview("Select an HTML file in this session to preview.");
-      }
-    }
   }
+
   fromUri(resource) {
     if (this.pinned || resource?.scheme !== SCHEME) return;
     const c = this.provider.controllers.find(
@@ -835,125 +766,10 @@ class SessionWorkspace {
       );
     });
   }
-  attachPanel(panel) {
-    this.panel = panel;
-    panel.webview.options = { enableScripts: true, localResourceRoots: [] };
-    panel.onDidDispose(() => {
-      if (this.panel === panel) {
-        this.panel = null;
-        this.closeServer();
-      }
-    });
-    panel.webview.onDidReceiveMessage((message) => {
-      if (message?.type === "refresh") {
-        if (this.previewContext)
-          this.service(this.previewContext.controller).retryNow();
-        this.sendPreview("reload");
-      }
-      if (message?.type === "pin") {
-        this.previewPinned = !this.previewPinned;
-        this.sendPreview("pin", { pinned: this.previewPinned });
-      }
-      if (message?.type === "browser")
-        vscode.commands.executeCommand(
-          "remoteAgentSessions.openPreviewBrowser",
-        );
-    });
-  }
-  closeServer() {
-    this.previewGeneration++;
-    clearTimeout(this.reloadTimer);
-    this.server?.dispose();
-    this.server = null;
-    this.previewUrl = null;
-  }
-  sendPreview(type, data = {}) {
-    return this.panel?.webview.postMessage({
-      type,
-      ...data,
-      token: this.panelToken,
-    });
-  }
-  emptyPreview(message) {
-    if (!this.panel) return;
-    const nonce = randomBytes(16).toString("hex");
-    this.panelToken = nonce;
-    this.panel.webview.html = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"></head><body style="font:14px sans-serif;color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:24px">${escape(message)}<script nonce="${nonce}">acquireVsCodeApi().setState(null)</script></body></html>`;
-  }
-
   async preview(item) {
-    let resource = item?.uri;
-    const c = item?.context || this.current;
-    if (!resource) {
-      const active = vscode.window.activeTextEditor?.document.uri;
-      if (active?.scheme === SCHEME) resource = active;
-    }
-    if (!resource || !c?.root)
-      throw new Error("Select an HTML file in a linked session directory");
-    if (
-      resource.authority !== c.controller.host.id ||
-      !/\.html?$/i.test(resource.path)
-    )
-      throw new Error("Select an HTML file in the current session");
-    relative(c.root, resource.path);
-    if (!vscode.workspace.isTrusted)
-      throw new Error(
-        "HTML preview requires a trusted workspace; file viewing remains read-only",
-      );
-    if (!this.panel)
-      this.attachPanel(
-        vscode.window.createWebviewPanel(
-          "tmuxdock.preview",
-          "TmuxDock HTML",
-          { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
-          {
-            enableScripts: true,
-            retainContextWhenHidden: true,
-            localResourceRoots: [],
-          },
-        ),
-      );
-    this.closeServer();
-    const generation = this.previewGeneration;
-    this.emptyPreview("Loading remote preview…");
-    const server = new PreviewServer(this.service(c.controller), c.root);
-    try {
-      await server.start();
-    } catch (e) {
-      server.dispose();
-      if (generation === this.previewGeneration) this.emptyPreview(e.message);
-      throw e;
-    }
-    if (generation !== this.previewGeneration || !this.panel) {
-      server.dispose();
-      return;
-    }
-    this.server = server;
-    this.previewUrl = server.url(resource.path);
-    this.previewContext = c;
-    this.context.workspaceState.update(
-      "preview." + c.controller.host.id + ":" + c.entry.id,
-      resource.path,
-    );
-    const state = {
-      hostId: c.controller.host.id,
-      sessionId: c.entry.id,
-      root: c.root,
-      file: resource.path,
-      pinned: this.previewPinned,
-    };
-    this.panel.title = "Preview · " + path.basename(resource.path);
-    const nonce = randomBytes(16).toString("hex");
-    this.panelToken = nonce;
-    this.panel.webview.html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; frame-src ${server.origin};"><style>html,body{margin:0;height:100%;overflow:hidden;background:var(--vscode-editor-background);color:var(--vscode-foreground);font:12px sans-serif}header{height:38px;display:flex;align-items:center;gap:10px;padding:0 12px}span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}button{color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:0;padding:5px 9px;cursor:pointer}iframe{width:100%;height:calc(100% - 38px);border:0}</style></head><body><header><span title="${escape(resource.path)}">${escape(c.controller.host.label)} · ${escape(c.record?.title || c.entry.title)} · ${escape(resource.path)}</span><small id="state">Live</small><button id="pin">${this.previewPinned ? "Unpin" : "Pin"}</button><button id="refresh">Refresh</button><button id="browser">Browser</button></header><iframe id="page" sandbox="allow-scripts allow-same-origin allow-forms" referrerpolicy="no-referrer" src="${escape(this.previewUrl)}"></iframe><script nonce="${nonce}">const api=acquireVsCodeApi();let state=${JSON.stringify(state).replace(/</g, "\\u003c")};api.setState(state);for(const id of ['pin','refresh','browser'])document.getElementById(id).onclick=()=>api.postMessage({type:id});document.getElementById('page').onload=()=>document.getElementById('state').textContent='Live';window.addEventListener('message',e=>{const m=e.data;if(m?.token!==${JSON.stringify(nonce)})return;if(m?.type==='reload'){const frame=document.getElementById('page');document.getElementById('state').textContent='Updating';frame.src=frame.src;}if(m?.type==='offline')document.getElementById('state').textContent='Offline';if(m?.type==='pin'){state.pinned=m.pinned;api.setState(state);document.getElementById('pin').textContent=m.pinned?'Unpin':'Pin';}});</script></body></html>`;
-    server.on("change", () => {
-      clearTimeout(this.reloadTimer);
-      this.reloadTimer = setTimeout(() => this.sendPreview("reload"), 300);
-    });
-    server.on("offline", () => {
-      this.sendPreview("offline");
-    });
-    server.on("online", () => this.sendPreview("reload"));
+    const resource = item?.uri || vscode.window.activeTextEditor?.document.uri;
+    if (!resource) throw new Error("Select an HTML file in Session Files");
+    return this.previews.open(resource, item?.context || this.current);
   }
   dispose() {
     this.disposed = true;
@@ -962,8 +778,7 @@ class SessionWorkspace {
     this.clearTreeWatches();
     for (const w of this.documents.values()) w.dispose();
     this.documents.clear();
-    this.closeServer();
-    this.panel?.dispose();
+    this.previews.dispose();
     for (const s of this.services.values()) s.dispose();
     this.services.clear();
     this.treeEmitter.dispose();

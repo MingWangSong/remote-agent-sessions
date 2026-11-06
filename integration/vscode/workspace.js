@@ -68,7 +68,7 @@ exports.run = async (api, controller, check) => {
       );
     },
   );
-  let doc;
+  let doc, htmlPreview;
   await check(
     "Markdown preview: reuses VS Code's built-in renderer and tracks remote document updates",
     async () => {
@@ -81,14 +81,20 @@ exports.run = async (api, controller, check) => {
         item,
       );
       const source = vscode.workspace.textDocuments.find(
-        (d) => d.uri.toString() === item.uri.toString(),
+        (d) =>
+          d.uri.path === item.uri.path &&
+          d.uri.query.startsWith("tmuxdockPreview="),
       );
       assert.ok(source);
       assert.equal(source.languageId, "markdown");
       await wait(() =>
         vscode.window.tabGroups.all
           .flatMap((g) => g.tabs)
-          .some((t) => t.input instanceof vscode.TabInputWebview),
+          .some(
+            (t) =>
+              t.input instanceof vscode.TabInputCustom &&
+              t.input.viewType === "vscode.markdown.preview.editor",
+          ),
       );
       await fs.writeFile(
         path.join(root, "README.md"),
@@ -120,6 +126,73 @@ exports.run = async (api, controller, check) => {
     },
   );
   await check(
+    "Markdown previews: repeated and different files keep independent pinned tabs without splitting",
+    async () => {
+      const groups = vscode.window.tabGroups.all.length;
+      const column = vscode.window.tabGroups.activeTabGroup.viewColumn;
+      const first = (await files.getChildren()).find(
+        (e) => e.name === "README.md",
+      );
+      await fs.writeFile(path.join(root, "second.md"), "# Second document");
+      files.cache.clear();
+      const second = (await files.getChildren()).find(
+        (e) => e.name === "second.md",
+      );
+      for (const item of [first, second, first])
+        await vscode.commands.executeCommand(
+          "remoteAgentSessions.previewMarkdown",
+          item,
+        );
+      const markdownTabs = () =>
+        vscode.window.tabGroups.all
+          .flatMap((g) => g.tabs)
+          .filter(
+            (t) =>
+              t.input instanceof vscode.TabInputCustom &&
+              t.input.viewType === "vscode.markdown.preview.editor",
+          );
+      await wait(() => markdownTabs().length === 4);
+      assert.equal(vscode.window.tabGroups.all.length, groups);
+      assert.ok(
+        markdownTabs().every(
+          (t) => t.group.viewColumn === column && !t.isPreview,
+        ),
+      );
+      assert.equal(
+        new Set(markdownTabs().map((t) => t.input.uri.toString())).size,
+        4,
+      );
+      await fs.writeFile(
+        path.join(root, "README.md"),
+        "# All original previews update",
+      );
+      await wait(() =>
+        vscode.workspace.textDocuments
+          .filter(
+            (d) =>
+              d.uri.path === first.uri.path &&
+              d.uri.query.startsWith("tmuxdockPreview="),
+          )
+          .every((d) => d.getText().includes("All original previews update")),
+      );
+      const firstTab = markdownTabs()[0];
+      await vscode.window.tabGroups.close(firstTab);
+      await fs.writeFile(
+        path.join(root, "README.md"),
+        "# Surviving previews update",
+      );
+      await wait(() =>
+        vscode.workspace.textDocuments
+          .filter(
+            (d) =>
+              d.uri.path === first.uri.path &&
+              d.uri.query.startsWith("tmuxdockPreview="),
+          )
+          .every((d) => d.getText().includes("Surviving previews update")),
+      );
+    },
+  );
+  await check(
     "Session files: creation and deletion update expanded directory data",
     async () => {
       await fs.writeFile(path.join(root, "new.txt"), "new");
@@ -141,8 +214,8 @@ exports.run = async (api, controller, check) => {
       const item = (await files.getChildren()).find(
         (e) => e.name === "index.html",
       );
-      await files.preview(item);
-      const server = files.server;
+      htmlPreview = await files.preview(item);
+      const server = htmlPreview.server;
       let loaded = false;
       server.server.on("request", (req) => {
         if (req.url.startsWith("/beacon-loaded")) loaded = true;
@@ -158,7 +231,7 @@ exports.run = async (api, controller, check) => {
     "HTML preview: remote CSS change automatically reloads its rendered page",
     async () => {
       let loads = 0;
-      files.server.server.on("request", (req) => {
+      htmlPreview.server.server.on("request", (req) => {
         if (req.url.startsWith("/beacon-loaded")) loads++;
       });
       await sleep(1600);
@@ -185,7 +258,7 @@ exports.run = async (api, controller, check) => {
         '">';
       let one = false,
         two = false;
-      files.server.server.on("request", (req) => {
+      htmlPreview.server.server.on("request", (req) => {
         if (req.url.startsWith("/assets/v1.png")) one = true;
         if (req.url.startsWith("/assets/v2.png")) two = true;
       });
@@ -237,6 +310,34 @@ exports.run = async (api, controller, check) => {
       );
       await controller.manager.deleteSession(other);
       await controller.manager.forget(other);
+    },
+  );
+  await check(
+    "HTML previews: every request adds a fixed tab in the current group and closing one preserves others",
+    async () => {
+      const groups = vscode.window.tabGroups.all.length;
+      const column = vscode.window.tabGroups.activeTabGroup.viewColumn;
+      const item = (await files.getChildren()).find(
+        (e) => e.name === "index.html",
+      );
+      const originalServer = htmlPreview.server;
+      const second = await files.preview(item);
+      const third = await files.preview(item);
+      assert.equal(files.previews.items.size, 3);
+      assert.equal(htmlPreview.server, originalServer);
+      assert.equal(originalServer.closed, false);
+      assert.equal(vscode.window.tabGroups.all.length, groups);
+      assert.equal(second.panel.viewColumn, column);
+      assert.equal(third.panel.viewColumn, column);
+      assert.notEqual(second.server.origin, third.server.origin);
+      assert.ok(!third.panel.webview.html.includes('id="pin"'));
+      const surviving = third.server;
+      second.panel.dispose();
+      await wait(() => files.previews.items.size === 2);
+      assert.equal(surviving.closed, false);
+      assert.equal(originalServer.closed, false);
+      third.panel.dispose();
+      htmlPreview.panel.reveal(column);
     },
   );
   await check(
@@ -307,14 +408,17 @@ exports.run = async (api, controller, check) => {
         vscode.window.activeTextEditor.document.uri.authority,
         host.id,
       );
-      const old = files.server;
-      await files.preview(secondItems.find((e) => e.name === "index.html"));
-      if (old) assert.equal(old.closed, true);
-      assert.equal(files.previewContext.controller.host.id, host.id);
+      const old = htmlPreview.server;
+      const secondPreview = await files.preview(
+        secondItems.find((e) => e.name === "index.html"),
+      );
+      assert.equal(old.closed, false);
+      assert.equal(secondPreview.context.controller.host.id, host.id);
+      assert.notEqual(secondPreview.server.origin, old.origin);
       await vscode.commands.executeCommand(
         "workbench.action.closeActiveEditor",
       );
-      files.panel?.dispose();
+      files.previews.dispose();
       await second.manager.forget(record2);
       await api.registry.remove(host.id);
       await api.provider.reloadHosts();
@@ -323,7 +427,7 @@ exports.run = async (api, controller, check) => {
       controller = api.controllers.find((c) => c.host.id === firstId);
     },
   );
-  files.panel?.dispose();
+  files.previews.dispose();
   await controller.manager.deleteSession(record);
   await controller.manager.forget(record);
   files.reconcile();

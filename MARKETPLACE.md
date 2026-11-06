@@ -26,11 +26,13 @@ Right-click a session and select **Show Session Files** to open its fixed workin
 - **Preview Markdown** uses the Markdown renderer already built into VS Code.
 - **Upload Files… / Download File…** reuse your local OpenSSH client. Uploads confirm replacement; transfers show progress and can be cancelled.
 
+Every HTML or Markdown preview opens a new permanent tab in your current editor group. Existing previews stay on their own file when sessions change, and the extension never creates a split automatically.
+
 New sessions retain their initial root across directory changes and recovery. Older sessions can **Link Working Directory** once. Files and HTML previews restore after Reload Window. The feature requires Python 3 on the Linux/macOS host; OpenSSH 9+ is recommended for SFTP file transfers. Native editing stays read-only; child symlinks and framework dev-server/HMR proxying are outside this first version.
 
 ## Stop a session. Keep its context.
 
-Before **Delete Session** closes a managed tmux workspace, TmuxDock saves its final directories, windows, panes and known Agent conversation links.
+Before **Stop Session (Keep Recovery Record)** closes a managed tmux workspace, TmuxDock saves its final directories, windows, panes and known Agent conversation links.
 
 ![A stopped session remains available to restore](media/showcase/02-recoverable.png)
 
@@ -41,9 +43,9 @@ Click the entry in **Stopped / Recoverable** to rebuild a new tmux session with 
 | Action | Result |
 | :--- | :--- |
 | Close terminal tab | Detach the client; remote tmux work continues while the host is running. |
-| Delete Session / Terminate | Save a recovery snapshot, then stop tmux and its processes. |
+| Stop Session | Save a recovery snapshot, then stop tmux and its processes. |
 | Restore Session | Rebuild the saved workspace; resume bound Agents according to the restore policy. |
-| Forget Session Record | Permanently remove local recovery metadata; leave running remote processes alone. |
+| Remove Recovery Record | Permanently remove local recovery metadata; leave running remote processes alone. |
 
 ## Start in three steps
 

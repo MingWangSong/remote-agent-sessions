@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.0.1 — 2026-11-06
+
+- Keep every HTML and Markdown preview in its own permanent tab, including repeated opens of the same file. Use the active editor group and never create a split automatically.
+- Keep HTML previews attached to their original file when switching sessions; retain independent live updates, browser actions and Reload Window restoration for every tab.
+- Reuse VS Code's built-in Markdown preview editor with independent document identities and shared remote file watches. Remove the redundant HTML Pin button.
+- Simplify session menus: merge Delete/Terminate into Stop Session (Keep Recovery Record), move auxiliary actions into More Actions, and show original-conversation binding only when needed. Preserve existing command IDs.
+
 ## 3.0.0 — 2026-11-06
 
 - Add Session Files in VS Code's native secondary sidebar with the active file icon theme, lazy directory loading, saved expansion, session following and pinning.

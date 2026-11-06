@@ -39,6 +39,11 @@ exports.run = async function () {
     assert.ok(extension.packageJSON.contributes.commands.every((item) => item.category === 'TmuxDock'));
     const commands = await vscode.commands.getCommands(true);
     for (const command of extension.packageJSON.contributes.commands) assert.ok(commands.includes(command.command), command.command);
+    const menus = extension.packageJSON.contributes.menus;
+    const common = menus['view/item/context'].filter(item => item.when.includes('session') && !item.when.includes('sshHost'));
+    for (const name of ['terminate','addNote','editCommand','showDetails','bindAgentSession','linkDirectory'])
+      assert.ok(!common.some(item => item.command === 'remoteAgentSessions.' + name));
+    assert.ok(common.some(item => item.submenu === 'remoteAgentSessions.sessionMore'));
     assert.equal(api.controllers.length, 1);
     assert.equal(controller.online, true);
     const titleCommands = extension.packageJSON.contributes.menus['view/title'].map((item) => item.command);
@@ -78,6 +83,7 @@ exports.run = async function () {
     };
     try {
       const item = sessionItems(api.provider.getChildren()[0]).find(item => item.entry.id === legacy.id);
+      assert.ok(item.contextValue.endsWith('NeedsBinding'));
       const pending = vscode.commands.executeCommand('remoteAgentSessions.bindAgentSession', item);
       await waitFor(() => loaded); await sleep(100);
       assert.equal(linked, false, 'loading even one result must not bind it automatically');
@@ -85,6 +91,7 @@ exports.run = async function () {
       await pending;
       const saved = (await controller.manager.store.load()).find(record => record.id === legacy.id);
       assert.equal(saved.agent.sessionId, originalId);
+      assert.ok(!sessionItems(api.provider.getChildren()[0]).find(item => item.entry.id === legacy.id).contextValue.endsWith('NeedsBinding'));
       assert.equal(saved.windows[0].panes[0].agent.sessionId, originalId);
       assert.ok(saved.windows[0].panes[0].command.includes(originalId));
       assert.ok(!saved.windows[0].panes[0].command.includes('--last'));

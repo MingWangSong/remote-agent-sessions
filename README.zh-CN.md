@@ -27,13 +27,13 @@
 
 文件单击用 VS Code 原生只读编辑器打开。目录右键可 **Upload Files…**，文件右键可 **Download File…**；HTML 显示 **Preview HTML**，Markdown 显示 **Preview Markdown**。不堆叠 Git、Timeline、删除和重命名等菜单。
 
-HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载资源后自动重载；预览可单独固定，并在 Reload Window 后恢复。Markdown 直接使用 VS Code 自带预览。
+HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载资源后自动重载；HTML 和 Markdown 每次预览都在当前编辑器分组新建独立标签，切换 session 不覆盖旧预览；不会自动分屏，Reload Window 后保留布局。Markdown 直接使用 VS Code 自带预览。
 
 远端 Linux/macOS 需 Python 3；上传下载复用本地 OpenSSH，推荐 OpenSSH 9+ 的 SFTP 传输。上传覆盖同名文件前会确认，传输有进度和取消入口。首版不跟随子级符号链接，不代理开发服务器/HMR。可关闭 `remoteAgentSessions.sessionFilesEnabled` 停用此功能。
 
 ## 从停止，到继续
 
-**Delete Session** 保留恢复记录。打开 **Stopped / Recoverable**，点击对应会话，即可按快照重建。
+**Stop Session (Keep Recovery Record)** 保存后停止会话并保留恢复记录。打开 **Stopped / Recoverable**，点击对应会话，即可按快照重建。
 
 ![停止后保留恢复记录](media/showcase/02-recoverable.png)
 
@@ -47,7 +47,7 @@ HTML 支持相对路径和根路径的 CSS、JS、图片，Agent 修改已加载
 2. 在活动栏打开 TmuxDock，点击 **Add SSH Host**，输入已能通过 SSH 连接的别名。
 3. 点击现有会话，或创建 Codex、Claude、Shell 会话。Agent CLI 需安装在远端。
 
-关闭终端标签只断开连接，远端 tmux 继续运行；**Delete / Terminate** 保存后停止；**Restore** 重建；**Forget** 永久移除本地记录、不停止远端进程。
+关闭终端标签只断开连接，远端 tmux 继续运行；**Stop Session** 保存后停止；**Restore** 重建；**Remove Recovery Record** 永久移除本地记录、不停止远端进程。
 
 ## 本地控制，远端执行
 

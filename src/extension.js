@@ -171,6 +171,8 @@ class SessionTreeItem extends vscode.TreeItem {
       this.contextValue = 'sessionUnavailable';
       this.description = entry.status === 'conflict' ? 'name belongs to another session' : 'host unavailable';
     }
+    if (entry.managed && !entry.record?.agent?.manualRestore && builtinAgent(sessionType(entry)) &&
+        (!entry.record?.agent?.sessionId || needsAgentBinding(entry.record))) this.contextValue += 'NeedsBinding';
     const activity = controller.sessionActivity.get(entry.id);
     if (activity) {
       this.iconPath = new vscode.ThemeIcon('loading~spin');
@@ -647,34 +649,25 @@ async function activate(context) {
     await attachEntry(resolved.controller, restored);
   });
 
-  command('remoteAgentSessions.terminate', async (item) => {
-    const resolved = await resolveSession(item, provider, (entry) => entry.status === 'live');
-    if (!resolved) return;
-    const answer = await vscode.window.showWarningMessage(
-      `Terminate ${resolved.entry.tmuxSession} on ${resolved.controller.host.label}? All processes inside it will stop.`,
-      { modal: true }, 'Terminate'
-    );
-    if (answer !== 'Terminate') return;
-    await resolved.controller.manager.terminate(resolved.entry);
-    provider.changed();
-  });
-
-  command('remoteAgentSessions.delete', async (item) => {
+  const stopSession = async (item) => {
     const resolved = await resolveSession(item, provider,
       (entry) => entry.status === 'live');
     if (!resolved) return;
     const answer = await vscode.window.showWarningMessage(
-      `Delete ${resolved.entry.tmuxSession} on ${resolved.controller.host.label}? All processes inside it will stop.`,
-      { modal: true, detail: 'The last working directories and original Agent conversations will be saved. Restore recreates the same tmux name and resumes those conversations. Use Forget Session Record to permanently remove the saved entry.' }, 'Delete Session'
+      `Stop ${resolved.entry.tmuxSession} on ${resolved.controller.host.label}? All processes inside it will stop.`,
+      { modal: true, detail: 'The last working directories and original Agent conversations will be saved. Restore recreates the same tmux name and resumes those conversations. Use Remove Recovery Record to permanently remove the saved entry.' }, 'Stop Session'
     );
-    if (answer !== 'Delete Session') return;
+    if (answer !== 'Stop Session') return;
     const key = `${resolved.controller.host.id}:${resolved.entry.id}`;
     await resolved.controller.manager.deleteSession(resolved.entry);
     const terminal = terminals.get(key);
     if (terminal && terminal.exitStatus === undefined) terminal.dispose();
     terminals.delete(key);
     provider.changed();
-  });
+  };
+  command('remoteAgentSessions.delete', stopSession);
+  // Preserve the old command ID without exposing a second, divergent action.
+  command('remoteAgentSessions.terminate', stopSession);
 
   command('remoteAgentSessions.forget', async (item) => {
     const resolved = await resolveSession(item, provider, (entry) => entry.managed);

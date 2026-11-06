@@ -5,11 +5,22 @@ const vscode = require("vscode"),
   assert = require("node:assert/strict");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function wait(fn) {
-  for (let i = 0; i < 150; i++) {
+  for (let i = 0; i < 200; i++) {
     if (await fn()) return;
     await sleep(100);
   }
   throw Error("Workspace reload state timed out");
+}
+function layout() {
+  return vscode.window.tabGroups.all.map((g) => ({
+    column: g.viewColumn,
+    tabs: g.tabs.map((t) => ({
+      label: t.label,
+      preview: t.isPreview,
+      uri: t.input?.uri?.toString(),
+      type: t.input?.viewType || t.input?.constructor?.name,
+    })),
+  }));
 }
 exports.run = async () => {
   const file = path.join(
@@ -24,15 +35,15 @@ exports.run = async () => {
   const api = await vscode.extensions
     .getExtension(
       process.env.RAS_TEST_EXTENSION_ID ||
-        `${manifest.publisher}.${manifest.name}`,
+        manifest.publisher + "." + manifest.name,
     )
     .activate();
+  const previews = api.sessionWorkspace.previews;
   if (!state) {
     const root = path.join(process.env.RAS_TEST_DIRECTORY, "project");
-    await fs.writeFile(
-      path.join(root, "index.html"),
-      "<h1>Reload preview</h1>",
-    );
+    for (const name of ["index.html", "second.html"])
+      await fs.writeFile(path.join(root, name), "<h1>Reload preview</h1>");
+    await fs.writeFile(path.join(root, "README.md"), "# Before reload");
     await fs.writeFile(path.join(root, "note.txt"), "before reload");
     const host = await api.registry.add({
       sshHost: "fake-workspace-reload",
@@ -52,16 +63,25 @@ exports.run = async () => {
     );
     await vscode.commands.executeCommand("remoteAgentSessions.showFiles");
     const items = await api.sessionWorkspace.getChildren();
-    await api.sessionWorkspace.openFile(
-      items.find((e) => e.name === "note.txt"),
+    const note = items.find((e) => e.name === "note.txt");
+    await api.sessionWorkspace.openFile(note);
+    await api.sessionWorkspace.openFile(note);
+    for (let i = 0; i < 2; i++)
+      await vscode.commands.executeCommand(
+        "remoteAgentSessions.previewMarkdown",
+        items.find((e) => e.name === "README.md"),
+      );
+    for (const name of ["index.html", "second.html"]) {
+      const p = await api.sessionWorkspace.preview(
+        items.find((e) => e.name === name),
+      );
+      await wait(() => p.server?.subscriptions.size > 0);
+    }
+    assert.equal(
+      vscode.window.tabGroups.all.length,
+      1,
+      "opening previews must not create editor groups",
     );
-    await api.sessionWorkspace.openFile(
-      items.find((e) => e.name === "note.txt"),
-    );
-    await api.sessionWorkspace.preview(
-      items.find((e) => e.name === "index.html"),
-    );
-    await wait(() => api.sessionWorkspace.server?.subscriptions.size > 0);
     state = {
       phase: 0,
       host: host.id,
@@ -73,74 +93,84 @@ exports.run = async () => {
   } else {
     const c = api.controllers.find((c) => c.host.id === state.host);
     assert.ok(c);
-    const r = c.manager.records.find((r) => r.id === state.record);
-    assert.equal(r.workspaceRoot, state.root);
     assert.equal(
-      (await c.tmux.list()).find((s) => s.owner === r.id).id,
+      c.manager.records.find((r) => r.id === state.record).workspaceRoot,
+      state.root,
+    );
+    assert.equal(
+      (await c.tmux.list()).find((s) => s.owner === state.record).id,
       state.originalTmux,
     );
-    // Native webviews deserialize lazily when their tab becomes visible.
-    await wait(() => api.sessionWorkspace.server?.subscriptions.size > 0);
-    assert.equal(api.sessionWorkspace.previewContext.record.id, state.record);
-    assert.equal(api.sessionWorkspace.current.record.id, state.record);
-    assert.notEqual(api.sessionWorkspace.server.origin, state.previousOrigin);
-    try {
-      await wait(() =>
-        vscode.workspace.textDocuments.some(
-          (d) =>
-            d.uri.scheme === "tmuxdock-remote" &&
-            d.uri.path.endsWith("note.txt"),
-        ),
+    await wait(() => JSON.stringify(layout()) === JSON.stringify(state.layout));
+    // Native webviews/custom editors deserialize lazily. Reveal the existing
+    // restored tabs instead of opening replacements that could mask tab loss.
+    const group = vscode.window.tabGroups.activeTabGroup;
+    for (let i = 0; i < group.tabs.length; i++) {
+      await vscode.commands.executeCommand(
+        "workbench.action.openEditorAtIndex" + (i + 1),
       );
-    } catch (e) {
-      throw Error(
-        e.message +
-          " " +
-          JSON.stringify({
-            tabs: vscode.window.tabGroups.all.map((g) =>
-              g.tabs.map((t) => ({
-                label: t.label,
-                input: t.input?.constructor?.name,
-                uri: t.input?.uri?.toString(),
-                preview: t.isPreview,
-              })),
-            ),
-            documents: vscode.workspace.textDocuments.map((d) =>
-              d.uri.toString(),
-            ),
-          }),
-      );
+      await wait(() => group.tabs[i]?.isActive);
     }
-    const docs = vscode.workspace.textDocuments.filter(
-      (d) => d.uri.scheme === "tmuxdock-remote",
+    await wait(
+      () =>
+        previews.items.size === 2 &&
+        [...previews.items].every((i) => i.server?.subscriptions.size > 0),
     );
+    for (const p of previews.items) {
+      assert.equal(p.context.record.id, state.record);
+      assert.equal(p.state.root, state.root);
+      assert.notEqual(p.server.origin, state.previousOrigins[p.state.file]);
+    }
+    const markdown = () =>
+      vscode.workspace.textDocuments.filter(
+        (d) =>
+          d.uri.path.endsWith("README.md") &&
+          d.uri.query.startsWith("tmuxdockPreview="),
+      );
+    await wait(() => markdown().length === 2);
+    const note = vscode.workspace.textDocuments.find(
+      (d) =>
+        d.uri.scheme === "tmuxdock-remote" && d.uri.path.endsWith("note.txt"),
+    );
+    assert.ok(note);
     await fs.writeFile(
       path.join(state.root, "note.txt"),
       "after reload " + state.phase,
     );
+    await fs.writeFile(
+      path.join(state.root, "README.md"),
+      "# After reload " + state.phase,
+    );
     await wait(
       () =>
-        docs.find((d) => d.uri.path.endsWith("note.txt")).getText() ===
-        "after reload " + state.phase,
+        note.getText() === "after reload " + state.phase &&
+        markdown().every((d) =>
+          d.getText().includes("After reload " + state.phase),
+        ),
     );
+    assert.deepEqual(layout(), state.layout);
     state.checks.push(
       "reload " +
         state.phase +
-        ": fixed root, native file refresh, preview association and original tmux identity survive",
+        ": independent HTML and native Markdown tabs keep their layout, roots and live updates without restarting tmux",
     );
   }
   if (state.phase < 2) {
     state.phase++;
-    state.previousOrigin = api.sessionWorkspace.server.origin;
+    state.previousOrigins = Object.fromEntries(
+      [...previews.items].map((i) => [i.state.file, i.server.origin]),
+    );
+    state.layout = layout();
     await fs.writeFile(file, JSON.stringify(state));
     await sleep(1200);
     await vscode.commands.executeCommand("workbench.action.reloadWindow");
     await new Promise(() => {});
   }
-  api.sessionWorkspace.panel?.dispose();
+  previews.dispose();
   for (const terminal of vscode.window.terminals) terminal.dispose();
-  const c = api.controllers.find((c) => c.host.id === state.host);
-  await c.tmux.run(["kill-server"]);
+  await api.controllers
+    .find((c) => c.host.id === state.host)
+    .tmux.run(["kill-server"]);
   await fs.writeFile(
     process.env.RAS_TEST_REPORT,
     JSON.stringify(

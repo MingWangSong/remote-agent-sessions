@@ -36,7 +36,7 @@ When you deliberately stop a managed workspace, TmuxDock saves its final directo
 
 Right-click a session → **Show Session Files**. Its fixed working root appears in the right sidebar using VS Code's native tree and your file icon theme. Switching session tabs follows their directory; **Toggle Follow Session** pins the current tree. The initial root stays fixed even when a terminal changes directory or a stopped session is restored.
 
-Click a file to view it in the native read-only editor. The small context menu offers **Upload Files…**, **Download File…**, **Preview HTML** or **Preview Markdown**, as appropriate. Markdown uses VS Code's built-in preview. HTML previews load CSS, scripts, images and root-relative resources, then reload when requested files change. Preview pinning is independent of tree pinning; Reload Window restores saved file and HTML tabs.
+Click a file to view it in the native read-only editor. The small context menu offers **Upload Files…**, **Download File…**, **Preview HTML** or **Preview Markdown**, as appropriate. Markdown uses VS Code's built-in preview. HTML previews load CSS, scripts, images and root-relative resources, then reload when requested files change. Every HTML or Markdown preview opens in a separate permanent tab in the current editor group, including repeated previews of the same file. Switching sessions never replaces those previews. Only manually arranging tabs creates splits; Reload Window restores their layout.
 
 This optional feature requires Python 3 on the Linux/macOS host. Upload/download reuse local OpenSSH's `scp` and existing SSH connection options; use OpenSSH 9+ for SFTP transfers. Uploads ask before replacing a same-name file and stage it before committing. The native editor remains read-only. Older sessions need **Link Working Directory** once; no root is inferred from an old terminal's last directory.
 
@@ -44,7 +44,7 @@ The first version supports static HTML, not a framework dev-server/HMR proxy. It
 
 ## From stopped to working again
 
-**1 · Save before stopping.** Delete retains a recovery record. A snapshot or conversation verification failure leaves the running session intact.
+**1 · Save before stopping.** Stop Session retains a recovery record. A snapshot or conversation verification failure leaves the running session intact.
 
 ![Deleted shell session retained in Stopped / Recoverable](media/showcase/02-recoverable.png)
 
@@ -65,7 +65,7 @@ code --install-extension mingwangsong.remote-agent-sessions
 1. Open TmuxDock in the activity bar and select **Add SSH Host**.
 2. Enter an SSH alias already usable with `ssh your-alias`.
 3. Click an existing session, or create a named Codex, Claude or shell session.
-4. Close a terminal to detach. Use **Delete Session** to stop and save, **Restore Session** to rebuild, and **Forget Session Record** to permanently remove local recovery metadata.
+4. Close a terminal to detach. Use **Stop Session (Keep Recovery Record)** to stop and save, **Restore Session** to rebuild, and **Remove Recovery Record** to permanently remove local recovery metadata.
 
 <details>
 <summary><b>Recovery behavior worth knowing</b></summary>

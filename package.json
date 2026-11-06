@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Your remote work, docked. Manage multi-host tmux, Codex and Claude sessions in local VS Code with context-aware recovery.",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -52,7 +52,7 @@
     "onFileSystem:tmuxdock-remote"
   ],
   "scripts": {
-    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js && node --check src/sessionOrder.js && node --check src/operations.js && node --check src/sessionType.js && node --check src/terminalTitle.js && node --check src/agentSessions.js && node --check src/terminalPersistence.js && node --check scripts/test-vscode.js && node --check src/conversationPicker.js && node --check src/sessionWorkspace.js && node --check src/remoteFiles.js && node --check src/previewService.js && node --check src/fileTransfers.js",
+    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js && node --check src/sessionOrder.js && node --check src/operations.js && node --check src/sessionType.js && node --check src/terminalTitle.js && node --check src/agentSessions.js && node --check src/terminalPersistence.js && node --check scripts/test-vscode.js && node --check src/conversationPicker.js && node --check src/sessionWorkspace.js && node --check src/remoteFiles.js && node --check src/previewService.js && node --check src/fileTransfers.js && node --check src/htmlPreviews.js",
     "test": "node --test test/*.test.js",
     "verify": "npm run check && npm test",
     "test:integration": "node --test --test-concurrency=1 integration/tmux.integration.js",
@@ -148,8 +148,8 @@
       },
       {
         "command": "remoteAgentSessions.delete",
-        "title": "Delete Session",
-        "icon": "$(trash)",
+        "title": "Stop Session (Keep Recovery Record)",
+        "icon": "$(debug-stop)",
         "category": "TmuxDock"
       },
       {
@@ -166,7 +166,7 @@
       },
       {
         "command": "remoteAgentSessions.forget",
-        "title": "Forget Session Record",
+        "title": "Remove Recovery Record",
         "icon": "$(trash)",
         "category": "TmuxDock"
       },
@@ -378,74 +378,9 @@
           "group": "danger@9"
         },
         {
-          "command": "remoteAgentSessions.attach",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sessionLive/",
-          "group": "inline@1"
-        },
-        {
-          "command": "remoteAgentSessions.restore",
-          "when": "view == remoteAgentSessions.sessions && viewItem == sessionRecoverable",
-          "group": "inline@1"
-        },
-        {
-          "command": "remoteAgentSessions.showDetails",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session/",
-          "group": "navigation@1"
-        },
-        {
-          "command": "remoteAgentSessions.adopt",
-          "when": "view == remoteAgentSessions.sessions && viewItem == sessionLiveUnmanaged",
-          "group": "navigation@2"
-        },
-        {
-          "command": "remoteAgentSessions.rename",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|LiveUnmanaged|Recoverable)/",
-          "group": "navigation@3"
-        },
-        {
-          "command": "remoteAgentSessions.addNote",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable|Unavailable)/",
-          "group": "navigation@4"
-        },
-        {
-          "command": "remoteAgentSessions.delete",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sessionLive/",
-          "group": "danger@1"
-        },
-        {
-          "command": "remoteAgentSessions.terminate",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /sessionLive/",
-          "group": "danger@2"
-        },
-        {
-          "command": "remoteAgentSessions.forget",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable|Unavailable)/",
-          "group": "danger@3"
-        },
-        {
-          "command": "remoteAgentSessions.editCommand",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable|Unavailable)/",
-          "group": "navigation@5"
-        },
-        {
           "command": "remoteAgentSessions.resetOrder",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
           "group": "host@5"
-        },
-        {
-          "command": "remoteAgentSessions.bindAgentSession",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session(LiveManaged|Recoverable)/",
-          "group": "navigation@6"
-        },
-        {
-          "command": "remoteAgentSessions.showFiles",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session/",
-          "group": "navigation@7"
-        },
-        {
-          "command": "remoteAgentSessions.linkDirectory",
-          "when": "view == remoteAgentSessions.sessions && viewItem =~ /session/",
-          "group": "navigation@8"
         },
         {
           "command": "remoteAgentSessions.uploadFiles",
@@ -466,6 +401,84 @@
           "command": "remoteAgentSessions.previewMarkdown",
           "when": "view == remoteAgentSessions.files && viewItem =~ /^remoteMarkdown$/",
           "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.attach",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^sessionLive/",
+          "group": "inline@1"
+        },
+        {
+          "command": "remoteAgentSessions.restore",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^sessionRecoverable/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.showFiles",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "remoteAgentSessions.rename",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session(Live|Recoverable)/",
+          "group": "navigation@3"
+        },
+        {
+          "command": "remoteAgentSessions.adopt",
+          "when": "view == remoteAgentSessions.sessions && viewItem == sessionLiveUnmanaged",
+          "group": "navigation@4"
+        },
+        {
+          "submenu": "remoteAgentSessions.sessionMore",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session/",
+          "group": "settings@1"
+        },
+        {
+          "command": "remoteAgentSessions.delete",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^sessionLive/",
+          "group": "danger@1"
+        },
+        {
+          "command": "remoteAgentSessions.forget",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^sessionRecoverable/",
+          "group": "danger@2"
+        }
+      ],
+      "remoteAgentSessions.sessionMore": [
+        {
+          "command": "remoteAgentSessions.showDetails",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.linkDirectory",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session/",
+          "group": "navigation@2"
+        },
+        {
+          "command": "remoteAgentSessions.bindAgentSession",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /NeedsBinding$/",
+          "group": "recovery@1"
+        },
+        {
+          "command": "remoteAgentSessions.addNote",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session(LiveManaged|Recoverable|Unavailable)/",
+          "group": "settings@1"
+        },
+        {
+          "command": "remoteAgentSessions.editCommand",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session(LiveManaged|Recoverable|Unavailable)/",
+          "group": "settings@2"
+        },
+        {
+          "command": "remoteAgentSessions.forget",
+          "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session(LiveManaged|Unavailable)/",
+          "group": "danger@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "remoteAgentSessions.terminate",
+          "when": "false"
         }
       ]
     },
@@ -554,7 +567,13 @@
           "fontCharacter": "\\E002"
         }
       }
-    }
+    },
+    "submenus": [
+      {
+        "id": "remoteAgentSessions.sessionMore",
+        "label": "More Actions"
+      }
+    ]
   },
   "dependencies": {
     "proper-lockfile": "4.1.2"
