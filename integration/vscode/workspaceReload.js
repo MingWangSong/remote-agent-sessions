@@ -17,7 +17,7 @@ function layout() {
     tabs: g.tabs.map((t) => ({
       label: t.label,
       preview: t.isPreview,
-        uri: t.input?.uri?.toString() || null,
+      uri: t.input?.uri?.toString() || null,
       type: t.input?.viewType || t.input?.constructor?.name,
     })),
   }));
@@ -101,7 +101,14 @@ exports.run = async () => {
       (await c.tmux.list()).find((s) => s.owner === state.record).id,
       state.originalTmux,
     );
-    await wait(() => JSON.stringify(layout()) === JSON.stringify(state.layout));
+    // VS Code initially exposes unresolved editor placeholders. Check the
+    // group/tab counts first; compare full identities after revealing them.
+    const shape = (groups) =>
+      groups.map((g) => ({ column: g.column, count: g.tabs.length }));
+    await wait(
+      () =>
+        JSON.stringify(shape(layout())) === JSON.stringify(shape(state.layout)),
+    );
     // Native webviews/custom editors deserialize lazily. Reveal the existing
     // restored tabs instead of opening replacements that could mask tab loss.
     const group = vscode.window.tabGroups.activeTabGroup;
@@ -110,7 +117,7 @@ exports.run = async () => {
         "workbench.action.openEditorAtIndex" + (i + 1),
       );
       await wait(() => group.tabs[i]?.isActive);
-      const tab = group.tabs[i];
+      const tab = state.layout[0].tabs[i];
       if (tab.label.startsWith("Preview · ")) {
         const name = tab.label.slice("Preview · ".length);
         try {
@@ -136,10 +143,10 @@ exports.run = async () => {
               }),
           );
         }
-      } else if (tab.input?.uri?.scheme === "tmuxdock-remote") {
+      } else if (tab.uri?.startsWith("tmuxdock-remote:")) {
         await wait(() =>
           vscode.workspace.textDocuments.some(
-            (d) => d.uri.toString() === tab.input.uri.toString(),
+            (d) => d.uri.toString() === tab.uri,
           ),
         );
       }
@@ -181,6 +188,7 @@ exports.run = async () => {
           d.getText().includes("After reload " + state.phase),
         ),
     );
+    await wait(() => JSON.stringify(layout()) === JSON.stringify(state.layout));
     assert.deepEqual(layout(), state.layout);
     state.checks.push(
       "reload " +
