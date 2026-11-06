@@ -162,22 +162,25 @@ def rename_entry(p):
         finally: os.close(dstfd)
     finally: os.close(srcfd)
 
+def remove_at(parent, leaf, recursive=True):
+    before = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+    if stat.S_ISDIR(before.st_mode):
+        if not recursive: raise IsADirectoryError('Recursive deletion is required for a directory')
+        if before.st_dev != os.fstat(parent).st_dev: raise PermissionError('Mounted directories cannot be deleted recursively')
+        child = os.open(leaf, DIR, dir_fd=parent)
+        try:
+            if (os.fstat(child).st_dev, os.fstat(child).st_ino) != (before.st_dev, before.st_ino):
+                raise PermissionError('The directory changed while deleting; refresh and retry')
+            for entry in os.listdir(child): remove_at(child, entry)
+            current = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
+            if (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
+                raise PermissionError('The directory changed while deleting; refresh and retry')
+            os.rmdir(leaf, dir_fd=parent)
+        finally: os.close(child)
+    else: os.unlink(leaf, dir_fd=parent)
+
 def discard_upload(p):
     fd, name = parent_path(p)
-    def remove(parent, leaf):
-        before = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
-        if stat.S_ISDIR(before.st_mode):
-            child = os.open(leaf, DIR, dir_fd=parent)
-            try:
-                if (os.fstat(child).st_dev, os.fstat(child).st_ino) != (before.st_dev, before.st_ino):
-                    raise PermissionError('Upload staging directory changed')
-                for entry in os.listdir(child): remove(child, entry)
-                current = os.stat(leaf, dir_fd=parent, follow_symlinks=False)
-                if (current.st_dev, current.st_ino) != (before.st_dev, before.st_ino):
-                    raise PermissionError('Upload staging directory changed')
-                os.rmdir(leaf, dir_fd=parent)
-            finally: os.close(child)
-        else: os.unlink(leaf, dir_fd=parent)
     try:
         if not re.fullmatch(r'\.tmuxdock-upload-[a-f0-9-]{36}', name):
             raise PermissionError('Only an owned upload staging directory can be removed')
@@ -185,7 +188,14 @@ def discard_upload(p):
         expected = p.get('signature', '').split(':')[:2]
         if not stat.S_ISDIR(s.st_mode) or expected != [str(s.st_dev), str(s.st_ino)]:
             raise PermissionError('Upload staging directory changed')
-        remove(fd, name)
+        remove_at(fd, name)
+        return True
+    finally: os.close(fd)
+
+def delete_entry(p):
+    fd, name = parent_path(p)
+    try:
+        remove_at(fd, name, bool(p.get('recursive')))
         return True
     finally: os.close(fd)
 
@@ -208,6 +218,7 @@ def perform(m):
     if op == 'mkdir': return make_directories(p)
     if op == 'rename': return rename_entry(p)
     if op == 'discardUpload': return discard_upload(p)
+    if op == 'delete': return delete_entry(p)
     if op == 'snapshot':
         checked = open_path(p['root'], ''); os.close(checked)
         paths = p.get('paths', [])

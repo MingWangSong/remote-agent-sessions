@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Your remote work, docked. Manage multi-host tmux, Codex and Claude sessions in local VS Code with context-aware recovery.",
-  "version": "3.2.0",
+  "version": "3.3.0",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -283,6 +283,30 @@
         "title": "Follow Active Session",
         "category": "TmuxDock",
         "icon": "$(pinned-dirty)"
+      },
+      {
+        "command": "remoteAgentSessions.copyFilePath",
+        "title": "Copy Absolute Path",
+        "category": "TmuxDock",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "remoteAgentSessions.copyRelativeFilePath",
+        "title": "Copy Relative Path",
+        "category": "TmuxDock",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "remoteAgentSessions.renameFile",
+        "title": "Rename\u2026",
+        "category": "TmuxDock",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "remoteAgentSessions.deleteFilePermanently",
+        "title": "Delete Permanently\u2026",
+        "category": "TmuxDock",
+        "icon": "$(trash)"
       }
     ],
     "viewsContainers": {
@@ -417,7 +441,7 @@
         },
         {
           "command": "remoteAgentSessions.uploadFiles",
-          "when": "view == remoteAgentSessions.files && viewItem =~ /^remoteDirectory$/",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remote(Directory|Root)$/",
           "group": "transfer@1"
         },
         {
@@ -477,13 +501,33 @@
         },
         {
           "command": "remoteAgentSessions.newFile",
-          "when": "view == remoteAgentSessions.files && viewItem == remoteDirectory",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remote(Directory|Root)$/",
           "group": "creation@1"
         },
         {
           "command": "remoteAgentSessions.newFolder",
-          "when": "view == remoteAgentSessions.files && viewItem == remoteDirectory",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remote(Directory|Root)$/",
           "group": "creation@2"
+        },
+        {
+          "command": "remoteAgentSessions.copyFilePath",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remote(File|Html|Markdown|Directory|Root|Link)$/",
+          "group": "clipboard@1"
+        },
+        {
+          "command": "remoteAgentSessions.copyRelativeFilePath",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remote(File|Html|Markdown|Directory|Root|Link)$/",
+          "group": "clipboard@2"
+        },
+        {
+          "command": "remoteAgentSessions.renameFile",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remote(File|Html|Markdown|Directory)$/",
+          "group": "modification@1"
+        },
+        {
+          "command": "remoteAgentSessions.deleteFilePermanently",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remote(File|Html|Markdown|Directory)$/",
+          "group": "z_danger@1"
         }
       ],
       "remoteAgentSessions.sessionMore": [

@@ -257,6 +257,81 @@ exports.run = async (files, controller, root, check) => {
     },
   );
   await check(
+    "Session files: rename preserves content and permanent delete requires explicit confirmation",
+    async () => {
+      const fixture = path.join(root, "context-actions");
+      await fs.mkdir(path.join(fixture, "nested"), { recursive: true });
+      await fs.writeFile(
+        path.join(fixture, "nested", "keep.md"),
+        "# Preserve until confirmed",
+      );
+      const folder = await item("context-actions");
+      const ask = files.askRename,
+        confirm = files.confirmDelete;
+      try {
+        files.askRename = async () => "renamed-actions";
+        await vscode.commands.executeCommand(
+          "remoteAgentSessions.renameFile",
+          folder,
+        );
+        const renamed = path.join(root, "renamed-actions");
+        assert.equal(
+          await fs.readFile(path.join(renamed, "nested", "keep.md"), "utf8"),
+          "# Preserve until confirmed",
+        );
+        const renamedItem = await item("renamed-actions");
+        let confirmations = 0;
+        files.confirmDelete = async (selected) => {
+          confirmations++;
+          assert.equal(selected.uri.path, renamed);
+          assert.ok((await fs.stat(renamed)).isDirectory());
+          return false;
+        };
+        assert.equal(
+          await vscode.commands.executeCommand(
+            "remoteAgentSessions.deleteFilePermanently",
+            renamedItem,
+          ),
+          false,
+        );
+        assert.equal(confirmations, 1);
+        assert.equal(
+          await fs.readFile(path.join(renamed, "nested", "keep.md"), "utf8"),
+          "# Preserve until confirmed",
+        );
+        files.confirmDelete = async () => {
+          confirmations++;
+          return true;
+        };
+        assert.equal(
+          await vscode.commands.executeCommand(
+            "remoteAgentSessions.deleteFilePermanently",
+            renamedItem,
+          ),
+          true,
+        );
+        assert.equal(confirmations, 2);
+        await assert.rejects(fs.stat(renamed), { code: "ENOENT" });
+        await assert.rejects(
+          files.deleteEntry(files.rootItem()),
+          /linked working directory/,
+        );
+        assert.equal(
+          confirmations,
+          2,
+          "root protection must run before confirmation",
+        );
+        await assert.rejects(
+          files.renameEntry(files.rootItem()),
+          /linked working directory/,
+        );
+      } finally {
+        files.askRename = ask;
+        files.confirmDelete = confirm;
+      }
+    },
+  );
+  await check(
     "Session files: unmanaged legacy sessions browse, link and edit without enabling recovery",
     async () => {
       const name = "legacy-file-only";

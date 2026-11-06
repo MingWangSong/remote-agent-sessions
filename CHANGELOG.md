@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.0 — 2026-11-06
+
+- Remove the redundant absolute working path above Session Files; keep the actionable root folder and full-path tooltips.
+- Add Copy Absolute Path and Copy Relative Path for tree files, folders and the root. Relative paths use the session working root (`.` for the root); copying requires no SSH request.
+- Add Rename and Delete Permanently context actions for files/folders. Reuse native editor file operations; reject rename collisions and require an explicit modal confirmation before permanent deletion, including a warning for folder contents.
+- Protect linked working roots and their ancestors from rename/delete, require recursive directory deletion explicitly, and never follow child symbolic links.
+
 ## 3.2.0 — 2026-11-06
 
 - Add native tree drag-and-drop: move files and folders within a linked session root, or drop local files and complete folders onto the root, any subdirectory or empty tree space to upload. Reuse WorkspaceEdit for native editor moves and OpenSSH SFTP for recursive transfers.

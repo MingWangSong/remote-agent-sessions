@@ -53,7 +53,7 @@ exports.run = async (api, controller, check) => {
       const roots = await files.getChildren();
       assert.equal(roots.length, 1);
       assert.equal(roots[0].uri.path, root);
-      assert.equal(files.getTreeItem(roots[0]).contextValue, "remoteDirectory");
+      assert.equal(files.getTreeItem(roots[0]).contextValue, "remoteRoot");
       const children = await files.getChildren(roots[0]);
       assert.ok(children.some((e) => e.name === "index.html"));
       assert.ok(children.some((e) => e.name === "assets"));
@@ -70,6 +70,45 @@ exports.run = async (api, controller, check) => {
         files.view.description.includes(controller.host.label),
         true,
       );
+    },
+  );
+  await check(
+    "Session files: compact header and absolute/relative Copy Path use the selected node without SSH",
+    async () => {
+      assert.equal(files.view.message, undefined);
+      const rootItem = files.rootItem();
+      const folder = (await files.getChildren(rootItem)).find(
+        (e) => e.name === "assets",
+      );
+      const child = (await files.getChildren(folder)).find(
+        (e) => e.name === "style.css",
+      );
+      const clipboard = await vscode.env.clipboard.readText();
+      const ssh = controller.ssh.run;
+      controller.ssh.run = async () => {
+        throw Error("Copy Path must not use SSH");
+      };
+      try {
+        for (const [item, absolute, relative] of [
+          [rootItem, root, "."],
+          [folder, path.join(root, "assets"), "assets"],
+          [child, path.join(root, "assets", "style.css"), "assets/style.css"],
+        ]) {
+          await vscode.commands.executeCommand(
+            "remoteAgentSessions.copyFilePath",
+            item,
+          );
+          assert.equal(await vscode.env.clipboard.readText(), absolute);
+          await vscode.commands.executeCommand(
+            "remoteAgentSessions.copyRelativeFilePath",
+            item,
+          );
+          assert.equal(await vscode.env.clipboard.readText(), relative);
+        }
+      } finally {
+        controller.ssh.run = ssh;
+        await vscode.env.clipboard.writeText(clipboard);
+      }
     },
   );
   let doc, htmlPreview;

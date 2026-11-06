@@ -335,13 +335,7 @@ class RemoteFiles extends EventEmitter {
       throw Object.assign(new Error("Move files within one linked directory"), {
         code: "NoPermissions",
       });
-    for (const linked of this.roots) {
-      if (linked === source || linked.startsWith(source + "/"))
-        throw Object.assign(
-          new Error("A linked working directory cannot be moved"),
-          { code: "NoPermissions" },
-        );
-    }
+    this.checkMutable(source);
     const result = await this.call(
       source,
       "rename",
@@ -356,6 +350,28 @@ class RemoteFiles extends EventEmitter {
     this.emit("change", destination, {
       type: result.replaced ? "changed" : "created",
     });
+    return result;
+  }
+  checkMutable(file) {
+    file = path.resolve(file);
+    for (const linked of this.roots)
+      if (linked === file || linked.startsWith(file === "/" ? "/" : file + "/"))
+        throw Object.assign(
+          new Error(
+            "A linked working directory cannot be renamed, moved or deleted",
+          ),
+          { code: "NoPermissions" },
+        );
+  }
+  async remove(file, options = {}, root) {
+    this.checkMutable(file);
+    const result = await this.call(
+      file,
+      "delete",
+      { recursive: Boolean(options.recursive) },
+      root,
+    );
+    this.emit("change", file, { type: "deleted" });
     return result;
   }
   discardUpload(file, signature, root) {

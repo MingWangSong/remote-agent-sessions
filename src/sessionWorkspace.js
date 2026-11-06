@@ -173,6 +173,10 @@ class SessionWorkspace {
     register("openFile", (item) => this.openFile(item));
     register("newFile", (item) => this.createEntry(item, "file"));
     register("newFolder", (item) => this.createEntry(item, "directory"));
+    register("copyFilePath", (item) => this.copyPath(item, false));
+    register("copyRelativeFilePath", (item) => this.copyPath(item, true));
+    register("renameFile", (item) => this.renameEntry(item));
+    register("deleteFilePermanently", (item) => this.deleteEntry(item));
     register("loadMoreFiles", (item) => {
       const key = item.parent.uri.toString();
       this.limits.set(key, (this.limits.get(key) || 200) + 200);
@@ -410,9 +414,8 @@ class SessionWorkspace {
       },
       writeFile: (u, data, options) =>
         wrap(() => self.access(u).write(u.path, data, options)),
-      delete: () => {
-        throw vscode.FileSystemError.NoPermissions();
-      },
+      delete: (u, options) =>
+        wrap(() => self.access(u).remove(u.path, options)),
       rename: (a, b, options) => wrap(() => self.actions.rename(a, b, options)),
       createDirectory: (u) => wrap(() => self.access(u).mkdir(u.path)),
     };
@@ -516,7 +519,9 @@ class SessionWorkspace {
         ? "Select a TmuxDock session to browse its working directory."
         : !c.root
           ? "This older session has no fixed root. Use Link Working Directory to choose it."
-          : `${c.root}${this.offline ? " · Unavailable: " + this.offline : ""}`;
+          : this.offline
+            ? "Unavailable: " + this.offline
+            : undefined;
   }
   clearTreeWatches() {
     for (const w of this.treeWatches.values()) w.dispose();
@@ -562,14 +567,17 @@ class SessionWorkspace {
     );
     t.id = item.uri.toString();
     t.resourceUri = item.uri;
-    t.contextValue =
-      item.type === "directory"
+    t.contextValue = item.isWorkspaceRoot
+      ? "remoteRoot"
+      : item.type === "directory"
         ? "remoteDirectory"
-        : /\.html?$/i.test(item.name)
-          ? "remoteHtml"
-          : /\.(md|markdown)$/i.test(item.name)
-            ? "remoteMarkdown"
-            : "remoteFile";
+        : item.type !== "file"
+          ? "remoteLink"
+          : /\.html?$/i.test(item.name)
+            ? "remoteHtml"
+            : /\.(md|markdown)$/i.test(item.name)
+              ? "remoteMarkdown"
+              : "remoteFile";
     t.tooltip = `${item.context.controller.host.label}\n${item.uri.path}`;
     if (item.type === "file")
       t.command = {
@@ -711,6 +719,92 @@ class SessionWorkspace {
         item.uri.toString(),
       viewColumn: vscode.ViewColumn.Active,
     });
+  }
+  entryPath(item, mutable = false) {
+    if (
+      !this.enabled ||
+      item?.uri?.scheme !== SCHEME ||
+      !item.context?.root ||
+      item.uri.authority !== item.context.controller.host.id
+    )
+      throw new Error("Select a file or directory in Session Files");
+    const rel = relative(item.context.root, item.uri.path);
+    if (mutable) this.access(item.uri).checkMutable(item.uri.path);
+    return rel;
+  }
+  copyPath(item, relativePath) {
+    const rel = this.entryPath(item);
+    return vscode.env.clipboard.writeText(
+      relativePath ? rel || "." : item.uri.path,
+    );
+  }
+  async renameEntry(item) {
+    this.entryPath(item, true);
+    const name = await this.askRename(item);
+    if (name === undefined || name === item.name) return;
+    const error = entryNameError(name);
+    if (error) throw new Error(error);
+    const destination = item.uri.with({
+      path: path.join(path.dirname(item.uri.path), name),
+    });
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "TmuxDock · Renaming " + item.name,
+      },
+      async () => {
+        const edit = new vscode.WorkspaceEdit();
+        edit.renameFile(item.uri, destination, { overwrite: false });
+        if (!(await vscode.workspace.applyEdit(edit)))
+          throw new Error(
+            "Rename was not completed; check the destination and retry",
+          );
+      },
+    );
+  }
+  askRename(item) {
+    return vscode.window.showInputBox({
+      title: "Rename",
+      prompt: "Rename " + item.uri.path,
+      value: item.name,
+      validateInput: entryNameError,
+    });
+  }
+  async deleteEntry(item) {
+    this.entryPath(item, true);
+    if (!(await this.confirmDelete(item))) return false;
+    // Recheck the linked roots after the confirmation, which can stay open
+    // while another session is linked or the user changes views.
+    this.entryPath(item, true);
+    return vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "TmuxDock · Deleting " + item.name,
+      },
+      async () => {
+        const edit = new vscode.WorkspaceEdit();
+        edit.deleteFile(item.uri, {
+          recursive: item.type === "directory",
+          ignoreIfNotExists: false,
+        });
+        if (!(await vscode.workspace.applyEdit(edit)))
+          throw new Error(
+            "Deletion was not completed; refresh the directory and retry",
+          );
+        return true;
+      },
+    );
+  }
+  async confirmDelete(item) {
+    const answer = await vscode.window.showWarningMessage(
+      `Permanently delete ${item.name}${item.type === "directory" ? " and all its contents" : ""}?`,
+      {
+        modal: true,
+        detail: `${item.context.controller.host.label}\n${item.uri.path}\n\nThis cannot be undone. The remote item will not be moved to Trash.`,
+      },
+      "Delete Permanently",
+    );
+    return answer === "Delete Permanently";
   }
   async createEntry(item, kind) {
     // Toolbar/command-palette actions always target the session root.

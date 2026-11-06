@@ -260,3 +260,63 @@ test("staged uploads reject changed destinations and cleanup only owned staging 
   });
   assert.equal(await fs.readFile(outside, "utf8"), "new");
 });
+test("permanent deletion requires recursive directory intent and never follows child symlinks or replaces linked roots", async (t) => {
+  const f = await fixture(t),
+    root = path.join(f.root, "root"),
+    outside = path.join(f.root, "keep.txt");
+  await fs.mkdir(root);
+  await fs.writeFile(outside, "outside contents");
+  f.files.setRoots([root]);
+  const folder = path.join(root, "delete-me");
+  await fs.mkdir(path.join(folder, "nested"), { recursive: true });
+  await fs.writeFile(path.join(folder, "nested", "report.md"), "contents");
+  await fs.symlink(outside, path.join(folder, "external-link"));
+  await assert.rejects(
+    f.files.remove(folder, { recursive: false }),
+    /Recursive/,
+  );
+  assert.equal(
+    await fs.readFile(path.join(folder, "nested", "report.md"), "utf8"),
+    "contents",
+  );
+  await assert.rejects(
+    f.files.remove(root, { recursive: true }),
+    /linked working directory/,
+  );
+  await assert.rejects(
+    f.files.channel.at(root, "delete", { path: "", recursive: true }),
+    /root/,
+  );
+  await assert.rejects(
+    f.files.channel.at(root, "delete", {
+      path: "../keep.txt",
+      recursive: true,
+    }),
+    /traversal/,
+  );
+  const changes = [];
+  f.files.on("change", (file, event) => changes.push([file, event.type]));
+  await f.files.remove(folder, { recursive: true });
+  await assert.rejects(fs.stat(folder), { code: "ENOENT" });
+  assert.equal(await fs.readFile(outside, "utf8"), "outside contents");
+  assert.deepEqual(changes, [[folder, "deleted"]]);
+  await fs.writeFile(path.join(root, "file.txt"), "remove file");
+  await f.files.remove(path.join(root, "file.txt"));
+  assert.deepEqual(await fs.readdir(root), []);
+  await fs.mkdir(path.join(root, "protected", "workspace"), {
+    recursive: true,
+  });
+  f.files.allow(path.join(root, "protected", "workspace"));
+  await assert.rejects(
+    f.files.remove(path.join(root, "protected"), { recursive: true }),
+    /linked working directory/,
+  );
+  assert.ok(
+    (await fs.stat(path.join(root, "protected", "workspace"))).isDirectory(),
+  );
+  f.files.setRoots([]);
+  await assert.rejects(
+    f.files.remove(path.join(root, "protected"), { recursive: true }, root),
+    /no longer linked/,
+  );
+});

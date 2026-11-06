@@ -27,6 +27,8 @@ Right-click a session and select **Show Session Files** to open its fixed workin
 - **Preview Markdown** uses the Markdown renderer already built into VS Code.
 - **Upload Files / Folders… / Download File…** reuse your local OpenSSH client. Drop desktop files or complete folders onto the root or subdirectories to upload. Drag tree entries between directories to move them. Moves reject collisions; folder uploads never merge existing folders. Regular-file replacements ask first; transfers show progress and can be cancelled.
 
+Session Files context actions include **Copy Absolute Path**, **Copy Relative Path**, **Rename…**, and **Delete Permanently…**. Relative paths start at the session working root. Permanent deletion requires confirmation and includes all contents of a selected folder; linked roots cannot be renamed or deleted.
+
 Every HTML or Markdown preview opens a new permanent tab in your current editor group. Existing previews stay on their own file when sessions change, and the extension never creates a split automatically.
 
 New sessions retain their initial root across directory changes and recovery. Older sessions automatically freeze their saved or active pane directory on first use; **Link Working Directory** can change it without enabling recovery, even for unmanaged tmux sessions. Files and HTML previews restore after Reload Window. The feature requires Python 3 on the Linux/macOS host; OpenSSH 9+ is recommended for SFTP file transfers. Native reads and saves support files up to 16 MiB; child symlinks and framework dev-server/HMR proxying are outside this first version.

@@ -152,7 +152,7 @@ test("remote files: unsupported mutations are rejected and viewing size is cappe
   const f = await fixture(t);
   await fs.writeFile(path.join(f.dir, "x"), "unchanged");
   await assert.rejects(
-    f.files.channel.at(f.dir, "delete", { path: "x" }),
+    f.files.channel.at(f.dir, "chmod", { path: "x" }),
     /Unsupported/,
   );
   assert.equal(await fs.readFile(path.join(f.dir, "x"), "utf8"), "unchanged");
