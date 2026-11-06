@@ -1,0 +1,95 @@
+"use strict";
+const vscode = require("vscode"), fs = require("node:fs/promises"), path = require("node:path"), assert = require("node:assert/strict");
+const pause = ms => new Promise(r=>setTimeout(r,ms));
+async function wait(fn, message) {for(let i=0;i<200;i++){if(await fn())return;await pause(100);}throw Error(message);}
+exports.run = async () => {
+  const targets=await fetch('http://127.0.0.1:'+process.env.SHOWCASE_PORT+'/json/list').then(r=>r.json());
+  const target=targets.find(t=>t.type==='page'&&t.url.includes('workbench'));
+  const ws=new WebSocket(target.webSocketDebuggerUrl);await new Promise(r=>ws.addEventListener('open',r,{once:true}));
+  let seq=0;const pending=new Map();ws.addEventListener('message',e=>{const m=JSON.parse(e.data);if(pending.has(m.id)){const [resolve,reject]=pending.get(m.id);pending.delete(m.id);m.error?reject(Error(JSON.stringify(m.error))):resolve(m.result);}});
+  const cdp=(method,params={})=>new Promise((resolve,reject)=>{const id=++seq;pending.set(id,[resolve,reject]);ws.send(JSON.stringify({id,method,params}));});
+  const evaluate=async expression=>(await cdp('Runtime.evaluate',{expression,returnByValue:true})).result?.value;
+  const checks=[],captures=[];
+  const capture=async name=>{
+    await vscode.commands.executeCommand('notifications.clearAll');await vscode.commands.executeCommand('notifications.hideToasts');await pause(1100);
+    await cdp('Runtime.evaluate',{expression:'document.fonts.ready',awaitPromise:true});
+    const text=await evaluate('document.body.innerText');
+    assert.ok(!/leo-dev|TachyonNexus|alluxio|\/Users\/|1397472492|@qq\.com/i.test(text),'Private information entered the demo workbench');
+    const shot=await cdp('Page.captureScreenshot',{format:'png'});
+    await fs.writeFile(path.join(process.env.SHOWCASE_OUTPUT,name+'.png'),Buffer.from(shot.data,'base64'));captures.push(name+'.png');
+  };
+  try {
+    await cdp('Emulation.setDeviceMetricsOverride',{width:1680,height:1000,deviceScaleFactor:1,mobile:false});
+    const api=await vscode.extensions.getExtension('mingwangsong.remote-agent-sessions').activate();
+    const root=process.env.SHOWCASE_PROJECT, fixture=path.resolve(__dirname,'../../docs/showcase');
+    for(const folder of ['site','docs','src','imports','reports'])await fs.mkdir(path.join(root,folder),{recursive:true});
+    for(const name of ['index.html','theme.css','live.js'])await fs.copyFile(path.join(fixture,name),path.join(root,'site',name));
+    await fs.copyFile(path.join(fixture,'RUNBOOK.md'),path.join(root,'docs','RUNBOOK.md'));
+    await fs.writeFile(path.join(root,'site','state.json'),'{"generation":"01"}');
+    await fs.writeFile(path.join(root,'README.md'),'# Atlas Lab\n\nSynthetic public workspace for TmuxDock.\n');
+    await fs.writeFile(path.join(root,'src','workspace.js'),`// Public demo. No customer system or model request.\nexport const workspace = {\n  root: 'atlas-lab',\n  terminals: ['atlas-codex', 'review-claude', 'build-shell'],\n  files: 'native tree + editor',\n  previews: ['HTML live reload', 'native Markdown'],\n  transfers: 'OpenSSH SFTP',\n  deletion: 'confirmation required',\n};\n`);
+    const hosts=[];
+    for(const [label,alias,suffix]of [['DEMO · East','demo-east',''],['DEMO · West','demo-west','-west']])hosts.push(await api.registry.add({label,sshHost:alias,defaultCwd:root,socketName:process.env.SHOWCASE_SOCKET+suffix}));
+    await api.provider.reloadHosts();
+    const east=api.controllers.find(c=>c.host.id===hosts[0].id), west=api.controllers.find(c=>c.host.id===hosts[1].id);
+    const records=[];
+    for(const [title,type]of [['atlas-codex','codex'],['review-claude','claude'],['build-shell','shell']]){
+      const record=await east.manager.create({title,cwd:root});
+      if(type!=='shell')await east.manager.edit(record,r=>{r.agent={type,manualRestore:true};});
+      await api.attachEntry(east,east.manager.entries.find(e=>e.id===record.id));records.push(record);
+    }
+    const westRecord=await west.manager.create({title:'release-check',cwd:root});
+    const stopped=await east.manager.create({title:'saved-workspace',cwd:root});await east.manager.deleteSession(stopped);
+    await api.provider.refresh(undefined,false);
+    await vscode.commands.executeCommand('workbench.view.extension.remoteAgentSessions');
+    for(const host of api.provider.getChildren()){
+      await api.view.reveal(host,{expand:true,focus:false});
+      for(const group of api.provider.getChildren(host))await api.view.reveal(group,{expand:true,focus:false});
+    }
+    const files=api.sessionWorkspace;
+    const owner=east.manager.entries.find(e=>e.id===records[0].id);files.select(east,owner,true);
+    await vscode.commands.executeCommand('remoteAgentSessions.showFiles');
+    await files.view.reveal(files.rootItem(),{expand:true,focus:false});
+    const children=async parent=>{files.cache.clear();return files.getChildren(parent||files.rootItem());};
+    const roots=await children(), site=roots.find(e=>e.name==='site'), docs=roots.find(e=>e.name==='docs'), imports=roots.find(e=>e.name==='imports'), src=roots.find(e=>e.name==='src');
+    for(const folder of [site,docs,imports,src])await files.view.reveal(folder,{expand:true,focus:false});
+    const html=(await children(site)).find(e=>e.name==='index.html');
+    const preview=await files.preview(html);await wait(()=>preview.server?.subscriptions.size>=3,'HTML resources did not load');
+    let generationTwo=false;preview.server.server.on('request',req=>{if(req.url.includes('/demo-ready?generation=02'))generationTwo=true;});
+    await fs.writeFile(path.join(root,'site','state.json'),'{"generation":"02"}');
+    await wait(()=>generationTwo,'Live HTML preview did not reflect the saved fixture update');
+    checks.push('Actual HTML webview loads CSS, JS and JSON and refreshes after a file save');
+    await capture('04-live-workspace');
+    const source=(await children(src)).find(e=>e.name==='workspace.js');await files.openFile(source);
+    const document=vscode.window.activeTextEditor.document;
+    const edit=new vscode.WorkspaceEdit();edit.insert(document.uri,new vscode.Position(0,0),'// Saved through TmuxDock native remote file editing.\n');
+    assert.equal(await vscode.workspace.applyEdit(edit),true);assert.equal(await document.save(),true);
+    assert.ok((await fs.readFile(path.join(root,'src','workspace.js'),'utf8')).startsWith('// Saved through TmuxDock'));
+    const local=path.join(process.env.SHOWCASE_TEMP,'desktop','release-kit');await fs.mkdir(path.join(local,'assets'),{recursive:true});
+    await fs.writeFile(path.join(local,'manifest.json'),'{"project":"atlas-lab","channel":"demo"}\n');
+    await fs.writeFile(path.join(local,'README.md'),'# Release kit\n\nUploaded recursively through OpenSSH SFTP.\n');
+    await fs.writeFile(path.join(local,'assets','release.css'),':root { --accent: #70e1c4; }\n');
+    assert.equal(await files.actions.upload([vscode.Uri.file(local)],imports),true);
+    assert.equal(await fs.readFile(path.join(root,'imports','release-kit','assets','release.css'),'utf8'),':root { --accent: #70e1c4; }\n');
+    checks.push('Native editing saves through the file channel; complete folder upload uses real OpenSSH SFTP');
+    const kit=(await children(imports)).find(e=>e.name==='release-kit');await files.view.reveal(kit,{expand:true,select:true,focus:false});
+    await pause(300);
+    const bounds=await evaluate(`(()=>{const e=[...document.querySelectorAll('[role="treeitem"]')].find(e=>e.getAttribute('aria-label')?.startsWith('release-kit'));if(!e)throw Error('Uploaded folder row not visible');const r=e.getBoundingClientRect();return {x:r.x+Math.min(100,r.width/2),y:r.y+r.height/2};})()`);
+    await cdp('Input.dispatchMouseEvent',{type:'mousePressed',button:'right',buttons:2,clickCount:1,...bounds});
+    await cdp('Input.dispatchMouseEvent',{type:'mouseReleased',button:'right',buttons:0,clickCount:1,...bounds});
+    await wait(async()=>/Copy Full Path/.test(await evaluate('document.body.innerText')),'Native file context menu did not open');
+    await capture('05-file-operations');
+    await cdp('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+    await cdp('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});
+    const runbook=(await children(docs)).find(e=>e.name==='RUNBOOK.md');
+    await vscode.commands.executeCommand('remoteAgentSessions.previewMarkdown',runbook);
+    await vscode.commands.executeCommand('remoteAgentSessions.previewMarkdown',runbook);
+    await files.preview(html);await vscode.commands.executeCommand('remoteAgentSessions.previewMarkdown',runbook);
+    assert.equal(vscode.window.tabGroups.all.length,1);
+    const markdownTabs=vscode.window.tabGroups.all.flatMap(g=>g.tabs).filter(t=>t.input instanceof vscode.TabInputCustom&&t.input.viewType==='vscode.markdown.preview.editor');
+    assert.equal(markdownTabs.length,3);assert.equal(new Set(markdownTabs.map(t=>t.input.uri.toString())).size,3);
+    checks.push('Repeated HTML and Markdown previews keep independent permanent tabs without creating a split');
+    await capture('06-document-previews');
+    await fs.writeFile(path.join(process.env.SHOWCASE_OUTPUT,'provenance.json'),JSON.stringify({captures,checks,privacy:'Disposable profile, synthetic host aliases and project documents, isolated tmux sockets, actual Python file channel and OpenSSH SFTP. Agent icons are display-only; no model or private conversation is used.',transport:'Local SSH shim executes the same remote commands against an isolated local fixture; SFTP runs the real OpenSSH server.'},null,2)+'\n');
+  } finally {ws.close();}
+};

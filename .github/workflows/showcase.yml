@@ -1,0 +1,22 @@
+name: Capture workspace showcase
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y tmux openssh-sftp-server
+      - run: npm ci
+      - run: xvfb-run -a node scripts/capture-workspace-docs.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: workspace-showcase
+          path: test-results/showcase/
