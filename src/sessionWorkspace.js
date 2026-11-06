@@ -845,7 +845,11 @@ class SessionWorkspace {
       }
     });
     panel.webview.onDidReceiveMessage((message) => {
-      if (message?.type === "refresh") this.sendPreview("reload");
+      if (message?.type === "refresh") {
+        if (this.previewContext)
+          this.service(this.previewContext.controller).retryNow();
+        this.sendPreview("reload");
+      }
       if (message?.type === "pin") {
         this.previewPinned = !this.previewPinned;
         this.sendPreview("pin", { pinned: this.previewPinned });
@@ -949,6 +953,7 @@ class SessionWorkspace {
     server.on("offline", () => {
       this.sendPreview("offline");
     });
+    server.on("online", () => this.sendPreview("reload"));
   }
   dispose() {
     this.disposed = true;

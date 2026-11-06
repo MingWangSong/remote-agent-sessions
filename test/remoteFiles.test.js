@@ -235,6 +235,17 @@ test("preview: requested CSS changes notify only its preview and release all wat
   await fs.writeFile(path.join(f.dir, "style.css"), "body{}");
   const server = await new PreviewServer(f.files, f.dir).start();
   t.after(() => server.dispose());
+  let offline = 0,
+    online = 0;
+  server.on("offline", () => offline++);
+  server.on("online", () => online++);
+  f.files.emit("offline", new Error("Unrelated root"), "/other");
+  assert.equal(offline, 0);
+  f.files.emit("offline", new Error("Disconnected"));
+  f.files.emit("online", f.dir);
+  f.files.emit("online", f.dir);
+  assert.equal(offline, 1);
+  assert.equal(online, 1);
   await request(server, "/style.css");
   let changes = 0;
   server.on("change", () => changes++);
@@ -247,6 +258,7 @@ test("preview: requested CSS changes notify only its preview and release all wat
   server.dispose();
   assert.equal(f.files.watches.size, 0);
   assert.equal(f.files.listenerCount("change"), 0);
+  assert.equal(f.files.listenerCount("online"), 0);
 });
 
 test("preview: a missing referenced resource is watched and becomes available when created", async (t) => {

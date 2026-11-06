@@ -64,10 +64,20 @@ class PreviewServer extends EventEmitter {
       if (this.subscriptions.has(file)) this.emit("change", file);
     };
     this.offline = (error, root) => {
-      if (!root || root === this.root) this.emit("offline", error);
+      if (!root || root === this.root) {
+        this.unavailable = true;
+        this.emit("offline", error);
+      }
+    };
+    this.online = (root) => {
+      if (root === this.root && this.unavailable) {
+        this.unavailable = false;
+        this.emit("online");
+      }
     };
     files.on("change", this.changed);
     files.on("offline", this.offline);
+    files.on("online", this.online);
   }
   async start() {
     await this.files.stat(this.root, this.root);
@@ -219,6 +229,7 @@ class PreviewServer extends EventEmitter {
     this.closed = true;
     this.files.off("change", this.changed);
     this.files.off("offline", this.offline);
+    this.files.off("online", this.online);
     for (const s of this.subscriptions.values()) s.dispose();
     this.subscriptions.clear();
     this.server?.close();
