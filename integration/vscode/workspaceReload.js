@@ -61,6 +61,15 @@ exports.run = async () => {
       c,
       c.manager.entries.find((e) => e.id === r.id),
     );
+    // createTerminal returns before VS Code has created and named its pty.
+    // A blank pending terminal tab is not a persisted terminal yet. Wait for
+    // the actual attachment before taking the before-reload layout snapshot.
+    await wait(async () => {
+      const terminal = vscode.window.terminals.find(t => t.name === r.title);
+      return terminal && await terminal.processId && vscode.window.tabGroups.all.some(g =>
+        g.tabs.some(t => t.label === r.title && t.input instanceof vscode.TabInputTerminal));
+    });
+    await wait(async () => (await c.tmux.list()).find(s => s.owner === r.id)?.attached === 1);
     await vscode.commands.executeCommand("remoteAgentSessions.showFiles");
     const items = await api.sessionWorkspace.getChildren(
       api.sessionWorkspace.rootItem(),
