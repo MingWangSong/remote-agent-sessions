@@ -38,6 +38,7 @@ jobs:
         if: always()
         with:
           name: vsix-${{ matrix.os }}
+          overwrite: true
           path: |
             dist/*.vsix*
             test-results/*.json

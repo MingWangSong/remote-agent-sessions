@@ -77,6 +77,10 @@ exports.run = async () => {
   const fullRestart = Boolean(process.env.RAS_TEST_FULL_RESTART);
   const stages = fullRestart ? ['before reload', 'after reload', 'after full app restart', 'after reload following full restart']
     : ['before reload', 'after first reload', 'after second reload'];
+  // Keep every inactive test tab visible in small Xvfb workbenches. A clipped
+  // or virtualized tab is not evidence that its contributed glyph is missing.
+  await vscode.commands.executeCommand('workbench.action.closeSidebar');
+  await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
   for (const [theme, label] of [['Default Dark Modern', 'dark'], ['Default Light Modern', 'light']]) {
     await vscode.workspace.getConfiguration('workbench').update('colorTheme', theme, vscode.ConfigurationTarget.Global);
     let tabs;
@@ -88,7 +92,7 @@ exports.run = async () => {
     }
     for (const [type, character] of [['codex', '\ue001'], ['claude', '\ue002']]) {
       const tab = tabs.find(tab => tab.label.includes(`Icon ${type}`));
-      assert.equal(tab?.theme, label, 'requested color theme must actually render');
+      assert.equal(tab?.theme, label, `${stages[state.phase]} / ${label}: requested theme and tab must render: ${JSON.stringify({tabs:tabs.map(t=>t.label), terminals:vscode.window.terminals.map(t=>t.name)})}`);
       const icon = tab?.icons.find(icon => icon.classes.includes(`codicon-tmuxdock-${type}`));
       assert.ok(icon, `${stages[state.phase]} / ${label}: missing ${type} icon: ${JSON.stringify(tabs)}`);
       assert.ok(icon.font.includes('session-marks.woff'), JSON.stringify(icon));
