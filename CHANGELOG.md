@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.3.5 — 2026-11-09
+
+- Fix desktop image/file/folder uploads when VS Code's tree drag-and-drop supplies a serialized cancellation token without its event method. Keep native upload progress cancellation available.
+- Recheck cancellation after upload preflight, retain per-transfer isolation and clean partial staging. Add binary PNG drops to root/subdirectories and cancellation regression coverage.
+
 ## 3.3.4 — 2026-11-09
 
 - Fix copying selected text from rendered HTML with VS Code's Copy action and Ctrl/Cmd+C, including Unicode and multiline selections inside the preview iframe.

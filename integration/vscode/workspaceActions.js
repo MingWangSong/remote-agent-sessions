@@ -160,6 +160,47 @@ exports.run = async (files, controller, root, check) => {
     },
   );
   await check(
+    "Session files: native image drops accept serialized tokens and retain progress cancellation",
+    async () => {
+      const local = path.join(process.env.RAS_TEST_DIRECTORY, "拖拽图片 #.png");
+      const image = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDakAAAAASUVORK5CYII=",
+        "base64",
+      );
+      await fs.writeFile(local, image);
+      const put = files.actions.putLocal;
+      const drop = async (target, cancellation) => {
+        const data = new vscode.DataTransfer();
+        data.set("image/png", {
+          asFile: () => ({ uri: vscode.Uri.file(local) }),
+        });
+        return files.actions.handleDrop(target, data, cancellation);
+      };
+      try {
+        files.actions.putLocal = async (_c, source, destination) =>
+          fs.copyFile(source, destination);
+        assert.equal(await drop(undefined, {}), true);
+        assert.deepEqual(await fs.readFile(path.join(root, path.basename(local))), image);
+        const folder = await item("assets");
+        assert.equal(await drop(folder, { isCancellationRequested: false }), true);
+        assert.deepEqual(await fs.readFile(path.join(root, "assets", path.basename(local))), image);
+        await fs.unlink(path.join(root, path.basename(local)));
+        files.actions.putLocal = async (_c, _source, destination, { signal }) => {
+          await fs.writeFile(destination, image.subarray(0, 20));
+          for (const abort of files.transferAborts)
+            if (abort.signal === signal) abort.abort();
+          signal.throwIfAborted();
+        };
+        assert.equal(await drop(files.rootItem(), {}), false);
+        await assert.rejects(fs.stat(path.join(root, path.basename(local))), { code: "ENOENT" });
+        assert.equal((await fs.readdir(root)).some(name => name.startsWith(".tmuxdock-upload-")), false);
+        assert.equal(files.transferAborts.size, 0);
+      } finally {
+        files.actions.putLocal = put;
+      }
+    },
+  );
+  await check(
     "Session files: a delayed desktop drop retains its original directory across session switches",
     async () => {
       const other = await controller.manager.create({

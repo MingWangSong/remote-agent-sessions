@@ -291,12 +291,18 @@ class SessionFileActions {
           continue;
       }
       const complete = await w.transfer("Uploading " + name, async (signal) => {
-        const listener = token?.onCancellationRequested(() => {
+        const cancel = () => {
           // The progress notification owns the same cancellation controller.
           w.transferAborts.forEach((abort) => {
             if (abort.signal === signal) abort.abort();
           });
-        });
+        };
+        // Tree DnD RPC can supply a serialized token without its Event method.
+        // The native progress notification still provides working cancellation.
+        const listener = typeof token?.onCancellationRequested === "function"
+          ? token.onCancellationRequested(cancel)
+          : undefined;
+        if (token?.isCancellationRequested) cancel();
         const temporary = path.join(
           directory,
           ".tmuxdock-upload-" + randomUUID(),
