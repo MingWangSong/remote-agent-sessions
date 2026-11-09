@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Remote tmux, Codex and Claude in one VS Code workspace. Native files, live HTML and Markdown previews, SFTP and recovery.",
-  "version": "3.3.3",
+  "version": "3.3.4",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -52,7 +52,7 @@
     "onFileSystem:tmuxdock-remote"
   ],
   "scripts": {
-    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js && node --check src/sessionOrder.js && node --check src/operations.js && node --check src/sessionType.js && node --check src/terminalTitle.js && node --check src/agentSessions.js && node --check src/terminalPersistence.js && node --check scripts/test-vscode.js && node --check src/conversationPicker.js && node --check src/sessionWorkspace.js && node --check src/remoteFiles.js && node --check src/previewService.js && node --check src/fileTransfers.js && node --check src/htmlPreviews.js && node --check src/sessionFileRoots.js && node --check src/sessionFileActions.js && node --check scripts/capture-workspace-docs.js && node --check integration/vscode/workspaceShowcase.js && node --check integration/vscode/fileOpening.js",
+    "check": "node --check src/extension.js && node --check src/backup.js && node --check src/hostRegistry.js && node --check src/ssh.js && node --check src/sessionManager.js && node --check src/tmux.js && node --check src/store.js && node --check src/model.js && node --check scripts/package.js && node --check src/sessionOrder.js && node --check src/operations.js && node --check src/sessionType.js && node --check src/terminalTitle.js && node --check src/agentSessions.js && node --check src/terminalPersistence.js && node --check scripts/test-vscode.js && node --check src/conversationPicker.js && node --check src/sessionWorkspace.js && node --check src/remoteFiles.js && node --check src/previewService.js && node --check src/fileTransfers.js && node --check src/htmlPreviews.js && node --check src/sessionFileRoots.js && node --check src/sessionFileActions.js && node --check scripts/capture-workspace-docs.js && node --check integration/vscode/workspaceShowcase.js && node --check integration/vscode/fileOpening.js && node --check src/previewClipboard.js && node --check integration/vscode/clipboard.js",
     "test": "node --test --test-timeout=60000 test/*.test.js",
     "verify": "npm run check && npm test",
     "test:integration": "node --test --test-concurrency=1 integration/tmux.integration.js",
@@ -663,6 +663,7 @@
     ]
   },
   "dependencies": {
+    "parse5": "7.3.0",
     "proper-lockfile": "4.1.2"
   },
   "devDependencies": {

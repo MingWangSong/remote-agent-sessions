@@ -45,7 +45,7 @@ const run = promisify(execFile);
     assert.ok(files.includes('extension/media/showcase/'+name), 'Capture missing from VSIX '+name);
   }
   assert.ok(images.every(url => url.startsWith('https://') && url.endsWith('.png')), 'Marketplace images must be HTTPS PNGs');
-  for(const dependency of ['proper-lockfile','graceful-fs','retry','signal-exit']) {
+  for(const dependency of ['proper-lockfile','graceful-fs','retry','signal-exit','parse5','entities']) {
     assert.ok(files.includes('extension/node_modules/'+dependency+'/package.json'),'Missing runtime dependency '+dependency);
   }
   const bytes=await fs.readFile(vsix);

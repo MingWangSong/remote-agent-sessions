@@ -58,6 +58,14 @@ exec sh -c "$1"
       RAS_TEST_REPORT: path.resolve(root,'test-results',process.env.RAS_TEST_FULL_RESTART ? 'restart-icon-results.json' : process.env.RAS_TEST_ICONS ? 'icon-results.json' : process.env.RAS_TEST_WORKSPACE_RELOAD ? 'workspace-reload-results.json' : process.env.RAS_TEST_RELOAD ? 'reload-results.json' : process.env.RAS_TEST_VSIX ? 'vsix-results.json' : 'vscode-results.json') };
     const launchArgs = [path.join(temp,'project'),'--user-data-dir',userData,'--extensions-dir',path.join(temp,'extensions'),
       '--disable-extensions','--disable-workspace-trust','--skip-welcome','--skip-release-notes'];
+    if (!process.env.RAS_TEST_RELOAD && !process.env.RAS_TEST_ICONS && !process.env.RAS_TEST_WORKSPACE_RELOAD) {
+      const port = await new Promise(resolve => {
+        const server = net.createServer();
+        server.listen(0, '127.0.0.1', () => { const port = server.address().port; server.close(() => resolve(port)); });
+      });
+      testsEnv.RAS_TEST_DEBUG_PORT = String(port);
+      launchArgs.push('--remote-debugging-port=' + port, '--remote-debugging-address=127.0.0.1');
+    }
     if (process.env.RAS_TEST_RELOAD || process.env.RAS_TEST_ICONS || process.env.RAS_TEST_WORKSPACE_RELOAD) {
       executable ||= await downloadAndUnzipVSCode({ version: 'stable' });
       // Match @vscode/test-electron's isolated test launch on Linux runners,

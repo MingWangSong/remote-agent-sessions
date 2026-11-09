@@ -52,10 +52,11 @@ function decodePath(raw) {
   return file;
 }
 class PreviewServer extends EventEmitter {
-  constructor(files, root) {
+  constructor(files, root, { clipboard = false } = {}) {
     super();
     this.files = files;
     this.root = path.resolve(root);
+    this.clipboard = clipboard;
     this.host = randomBytes(20).toString("hex") + ".localhost";
     this.subscriptions = new Map();
     this.sockets = new Set();
@@ -188,9 +189,23 @@ class PreviewServer extends EventEmitter {
       headers["Content-Range"] = `bytes ${first}-${last}/${info.size}`;
     }
     headers["Content-Length"] = Math.max(0, last - first + 1);
+    let firstChunk;
+    if (this.clipboard && /\.html?$/i.test(file) && !req.headers.range) {
+      if (req.method === "HEAD") delete headers["Content-Length"];
+      else {
+        prefetched ||= await this.files.chunk(file, 0, 262144, this.root);
+        if (prefetched.signature !== info.signature) throw new Error("Preview changed while loading");
+        firstChunk = require("./previewClipboard").addPreviewSelectionHelper(prefetched.data);
+        headers["Content-Length"] += firstChunk.length - prefetched.data.length;
+      }
+    }
     res.writeHead(status, headers);
     if (req.method === "HEAD") {
       res.end();
+      return;
+    }
+    if (firstChunk && info.size === 0) {
+      res.end(firstChunk);
       return;
     }
     for (
@@ -211,7 +226,7 @@ class PreviewServer extends EventEmitter {
         res.destroy();
         return;
       }
-      if (!res.write(result.data))
+      if (!res.write(offset === 0 && firstChunk ? firstChunk : result.data))
         await new Promise((resolve) => {
           res.once("drain", done);
           res.once("close", done);

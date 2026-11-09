@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.3.4 — 2026-11-09
+
+- Fix copying selected text from rendered HTML with VS Code's Copy action and Ctrl/Cmd+C, including Unicode and multiline selections inside the preview iframe.
+- Keep clipboard handling local to actual Copy gestures and the focused preview. Validate the frame source/origin, clear stale selections after navigation, and add no clipboard-read or page-to-extension clipboard-write API.
+- Preserve original HTML files, document CSP restrictions, resource URLs, streaming and range responses. Verify the real OS clipboard in isolated VS Code/Xvfb acceptance.
+
 ## 3.3.3 — 2026-11-09
 
 - Open supported files directly without the 2 MiB confirmation. Show cancellable native progress with the filename, host and transferred size, and reuse in-flight opens for repeated clicks.

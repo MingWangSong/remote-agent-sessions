@@ -322,3 +322,22 @@ test("preview: a missing referenced resource is watched and becomes available wh
   await eventual(() => changed);
   assert.equal((await request(server, "/later.css")).status, 200);
 });
+
+test("preview: clipboard compatibility streams UTF-8 HTML correctly and leaves source, CSP, ranges and other resources intact", async (t) => {
+  const f = await fixture(t);
+  const html = '<!doctype html><head><meta http-equiv="Content-Security-Policy" content="script-src \'none\'"></head><body>' + '中文'.repeat(150000) + '</body>';
+  await fs.writeFile(path.join(f.dir, 'copy.html'), html);
+  await fs.writeFile(path.join(f.dir, 'empty.html'), '');
+  await fs.writeFile(path.join(f.dir, 'plain.txt'), 'unchanged text');
+  const server = await new PreviewServer(f.files, f.dir, { clipboard: true }).start();
+  t.after(() => server.dispose());
+  const result = await request(server, '/copy.html');
+  assert.equal(result.status, 200);
+  assert.equal(Number(result.headers['content-length']), result.body.length);
+  assert.equal(result.body.toString().replace(/<script data-tmuxdock-copy>[\s\S]*?<\/script>/, ''), html);
+  assert.equal(await fs.readFile(path.join(f.dir, 'copy.html'), 'utf8'), html);
+  assert.equal((await request(server, '/copy.html', { Range: 'bytes=0-31' })).body.toString(), html.slice(0, 32));
+  assert.equal((await request(server, '/copy.html', {}, 'HEAD')).body.length, 0);
+  assert.equal((await request(server, '/plain.txt')).body.toString(), 'unchanged text');
+  assert.match((await request(server, '/empty.html')).body.toString(), /data-tmuxdock-copy/);
+});

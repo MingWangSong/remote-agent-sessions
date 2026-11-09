@@ -362,6 +362,7 @@ exports.run = async (api, controller, check) => {
       await wait(() => loads > 0);
     },
   );
+  await require("./clipboard").run(files, controller, root, htmlPreview, check);
   await check(
     "HTML preview: strict CSP remains intact and an external file replacement still refreshes the iframe",
     async () => {
