@@ -47,6 +47,7 @@ class SessionWorkspace {
     this.documents = new Map();
     this.transferAborts = new Set();
     this.openingFiles = new Map();
+    this.preparedFiles = new Map();
     this.openSequence = 0;
     this.cache = new Map();
     this.limits = new Map();
@@ -226,6 +227,7 @@ class SessionWorkspace {
       .get("sessionFilesEnabled", true);
     if (!this.enabled) {
       for (const operation of this.openingFiles.values()) operation.abort.abort();
+      for (const key of this.preparedFiles.keys()) this.clearPreparedFile(key);
       for (const abort of this.transferAborts) abort.abort();
       this.clearTreeWatches();
       for (const w of this.documents.values()) w.dispose();
@@ -298,6 +300,10 @@ class SessionWorkspace {
           if (operation.files === files && operation.resource.path === file &&
               operation.snapshot && change?.signature !== operation.snapshot.stat.signature)
             operation.snapshot = undefined;
+        for (const [key, prepared] of this.preparedFiles)
+          if (prepared.operation.files === files && prepared.operation.resource.path === file &&
+              change?.signature !== prepared.snapshot.stat.signature)
+            this.clearPreparedFile(key);
         const resources = new Map();
         const base = uri(controller.host.id, file);
         resources.set(base.toString(), base);
@@ -401,7 +407,7 @@ class SessionWorkspace {
         }),
       readFile: (u) => wrap(() => {
         const files = self.access(u);
-        return self.openingSnapshot(u, files)?.data || files.read(u.path);
+        return self.openingSnapshot(u, files, true)?.data || files.read(u.path);
       }),
       readDirectory: (u) =>
         wrap(async () => {
@@ -716,12 +722,45 @@ class SessionWorkspace {
       true,
     );
   }
-  openingSnapshot(resource, files) {
-    const operation = this.openingFiles.get(resource.toString());
-    // A verified snapshot only lives until this native open finishes. Reuse it
-    // for stat/readFile so adding cancellable loading never downloads twice.
-    if (operation?.files === files && files.roots.has(operation.root))
-      return operation.snapshot;
+  preparedFileKey(resource) {
+    // Native image editors add a version query; all these URIs read the same
+    // host/path. Only the short-lived content handoff ignores the query.
+    return JSON.stringify([resource.authority, resource.path]);
+  }
+  clearPreparedFile(key, operation) {
+    const prepared = this.preparedFiles.get(key);
+    if (!prepared || (operation && prepared.operation !== operation)) return;
+    clearTimeout(prepared.timer);
+    this.preparedFiles.delete(key);
+  }
+  prepareFile(operation, snapshot) {
+    const key = this.preparedFileKey(operation.resource);
+    this.clearPreparedFile(key);
+    // One consumption, at most four 16 MiB buffers, and five seconds for native
+    // custom editors which request their data after vscode.open has resolved.
+    while (this.preparedFiles.size >= 4)
+      this.clearPreparedFile(this.preparedFiles.keys().next().value);
+    const prepared = { operation, snapshot };
+    prepared.timer = setTimeout(() => this.clearPreparedFile(key, operation), 5000);
+    prepared.timer.unref?.();
+    this.preparedFiles.set(key, prepared);
+  }
+  openingSnapshot(resource, files, consume = false) {
+    const key = this.preparedFileKey(resource);
+    const pending = this.openingFiles.get(resource.toString());
+    if (pending?.snapshot && pending.files === files && files.roots.has(pending.root) && !pending.abort.signal.aborted) {
+      if (consume) this.clearPreparedFile(key, pending);
+      return pending.snapshot;
+    }
+    const prepared = this.preparedFiles.get(key);
+    if (!prepared) return;
+    const { operation, snapshot } = prepared;
+    if (operation.files !== files || !files.roots.has(operation.root) || operation.abort.signal.aborted) {
+      this.clearPreparedFile(key);
+      return;
+    }
+    if (consume) this.clearPreparedFile(key);
+    return snapshot;
   }
   openFile(item) {
     if (!item?.uri) return Promise.resolve();
@@ -740,6 +779,7 @@ class SessionWorkspace {
     operation.promise = Promise.resolve()
       .then(() => this.loadFile(item, operation))
       .catch(async (error) => {
+        this.clearPreparedFile(this.preparedFileKey(item.uri), operation);
         if (operation.abort.signal.aborted || error.name === "AbortError") return;
         if (error.code === "FileTooLarge") return this.offerFileDownload(item, error.size);
         // Release before showing Retry, so retrying cannot join its own task.
@@ -775,7 +815,7 @@ class SessionWorkspace {
         const info = await operation.files.stat(item.uri.path, operation.root, signal);
         throwIfAborted(signal);
         if (info.size > MAX_FILE) throw fileSizeError(info.size);
-        operation.snapshot = await operation.files.readSnapshot(item.uri.path, MAX_FILE, {
+        const snapshot = operation.snapshot = await operation.files.readSnapshot(item.uri.path, MAX_FILE, {
           signal,
           root: operation.root,
           onProgress: ({ loaded, total, attempt }) => progress.report({
@@ -783,6 +823,7 @@ class SessionWorkspace {
           }),
         });
         throwIfAborted(signal);
+        this.prepareFile(operation, snapshot);
         progress.report({ message: "Opening in this window" });
         return await this.openFileEditor(item, operation);
       } finally {
@@ -1052,6 +1093,7 @@ class SessionWorkspace {
   dispose() {
     this.disposed = true;
     for (const operation of this.openingFiles.values()) operation.abort.abort();
+    for (const key of this.preparedFiles.keys()) this.clearPreparedFile(key);
     for (const abort of this.transferAborts) abort.abort();
     clearInterval(this.reconcileTimer);
     this.clearTreeWatches();

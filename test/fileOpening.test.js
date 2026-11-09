@@ -64,7 +64,7 @@ function fixture() {
       name.startsWith("./") ? {} : require(name), module, module.exports,
   );
   workspace = Object.assign(Object.create(module.exports.SessionWorkspace.prototype), {
-    ready: Promise.resolve(), enabled: true, openingFiles: new Map(), openSequence: 0,
+    ready: Promise.resolve(), enabled: true, openingFiles: new Map(), preparedFiles: new Map(), openSequence: 0,
     fileEmitter: { event() {} }, fromUri() {}, access: () => files,
     downloadFile: async selected => logs.downloads.push(selected),
   });
@@ -83,7 +83,30 @@ test("file opening: >2 MiB opens directly; duplicate clicks share one progress/r
   assert.equal(f.logs.progress.filter(update => update.cancellable).length, 1);
   assert.ok(f.logs.progress.some(update => /Reading .*MiB/.test(update.message)));
   assert.equal(f.workspace.openingFiles.size, 0);
+  assert.equal(f.workspace.preparedFiles.size, 0);
   assert.equal(f.listeners.size, 0);
+});
+
+test("file opening: delayed native image reads consume a bounded handoff even with a version query", async () => {
+  const f = fixture(), item = f.item("image.png");
+  // A custom editor can finish opening its tab before requesting its bytes.
+  f.vscode.commands.executeCommand = async () => {};
+  await f.workspace.openFile(item);
+  assert.equal(f.workspace.openingFiles.size, 0);
+  assert.equal(f.workspace.preparedFiles.size, 1);
+  const alias = { ...item.uri, toString: () => item.uri.toString() + "?version=123" };
+  const provider = f.workspace.fileProvider();
+  await provider.stat(alias);
+  assert.equal((await provider.readFile(alias)).toString(), item.uri.path);
+  assert.equal(f.logs.reads.length, 1);
+  assert.equal(f.workspace.preparedFiles.size, 0);
+  for (let i = 0; i < 5; i++) await f.workspace.openFile(f.item(`image-${i}.png`));
+  assert.equal(f.workspace.preparedFiles.size, 4);
+  assert.equal(f.workspace.openingSnapshot(f.item("image-0.png").uri, f.files), undefined);
+  // A revoked root cannot consume prepared content.
+  f.files.roots.clear();
+  assert.equal(f.workspace.openingSnapshot(f.item("image-4.png").uri, f.files, true), undefined);
+  for (const key of f.workspace.preparedFiles.keys()) f.workspace.clearPreparedFile(key);
 });
 
 test("file opening: oversize preflight offers Download before any content transfer or editor", async () => {
