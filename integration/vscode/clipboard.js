@@ -53,7 +53,20 @@ async function browser() {
     }
     throw Error("Clipboard document did not become ready: " + origin + (host ? " (host)" : ""));
   };
-  return { send, evaluate, find, close: () => socket.close() };
+  const pressCopy = async modifiers => {
+    const { targetInfos } = await send("Target.getTargets");
+    const target = targetInfos.find(t => t.type === "page" && t.url.includes("workbench"));
+    assert.ok(target, "The isolated workbench must receive the native shortcut");
+    let session = sessions.get(target.targetId);
+    if (!session) {
+      ({ sessionId: session } = await send("Target.attachToTarget", { targetId: target.targetId, flatten: true }));
+      sessions.set(target.targetId, session);
+      await send("Runtime.enable", {}, session);
+    }
+    for (const type of ["keyDown", "keyUp"])
+      await send("Input.dispatchKeyEvent", { type, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, modifiers }, session);
+  };
+  return { send, evaluate, find, pressCopy, close: () => socket.close() };
 }
 
 exports.run = async (files, controller, root, originalPreview, check) => {
@@ -102,9 +115,7 @@ exports.run = async (files, controller, root, originalPreview, check) => {
       for (const modifiers of [2, 4]) {
         await select(preview);
         await vscode.env.clipboard.writeText("shortcut sentinel");
-        const context = await client.find(preview.server.origin);
-        for (const type of ["keyDown", "keyUp"])
-          await client.send("Input.dispatchKeyEvent", { type, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, modifiers }, context.session);
+        await client.pressCopy(modifiers);
         await expectClipboard(text);
       }
       report.checks.push("Trusted Ctrl+C and Cmd+C copy without reading clipboard permissions");
