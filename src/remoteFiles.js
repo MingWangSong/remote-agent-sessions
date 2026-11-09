@@ -9,6 +9,33 @@ const script = `import base64;exec(base64.b64decode('${source}'))`;
 const MAX_FRAME = 24 * 1024 * 1024;
 const MAX_FILE = 16 * 1024 * 1024;
 
+function throwIfAborted(signal) {
+  if (signal?.aborted)
+    throw Object.assign(new Error("File opening cancelled"), {
+      name: "AbortError", code: "ABORT_ERR",
+    });
+}
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  return new Promise((resolve, reject) => {
+    const cancel = () => {
+      try { throwIfAborted(signal); } catch (error) { reject(error); }
+    };
+    signal.addEventListener("abort", cancel, { once: true });
+    // Keep both handlers attached: an already sent request may finish after
+    // cancellation, without disrupting other users of the shared SSH channel.
+    Promise.resolve(promise).then(resolve, reject).finally(() =>
+      signal.removeEventListener("abort", cancel),
+    );
+    cancel();
+  });
+}
+function fileSizeError(size, limit = MAX_FILE) {
+  return Object.assign(new Error(
+    `File exceeds the ${Math.round(limit / 1024 / 1024)} MiB viewing limit`,
+  ), { code: "FileTooLarge", size, limit });
+}
+
 class FileChannel extends EventEmitter {
   constructor(transport, timeout = 15000) {
     super();
@@ -129,8 +156,10 @@ class FileChannel extends EventEmitter {
     await this.ready();
     return this.send(op, params);
   }
-  async at(root, op, params = {}) {
+  async at(root, op, params = {}, signal) {
+    throwIfAborted(signal);
     await this.ready();
+    throwIfAborted(signal);
     if (!this.bindings.has(root)) {
       const pending = this.send("bind", { path: root });
       this.bindings.set(root, pending);
@@ -139,6 +168,7 @@ class FileChannel extends EventEmitter {
       });
     }
     const binding = await this.bindings.get(root);
+    throwIfAborted(signal);
     return this.send(op, { ...params, root: binding.root });
   }
   release() {
@@ -270,19 +300,21 @@ class RemoteFiles extends EventEmitter {
     }, 30000);
     this.idleTimer.unref?.();
   }
-  async call(file, op, params = {}, root = this.rootFor(file)) {
+  async call(file, op, params = {}, root = this.rootFor(file), signal) {
+    throwIfAborted(signal);
     root = path.resolve(root);
     if (!this.roots.has(root))
       throw Object.assign(
         new Error("This workspace root is no longer linked"),
         { code: "NoPermissions" },
       );
-    return this.limited(() =>
-      this.channel.at(root, op, { path: relative(root, file), ...params }),
-    );
+    return abortable(this.limited(() => {
+      throwIfAborted(signal);
+      return this.channel.at(root, op, { path: relative(root, file), ...params }, signal);
+    }), signal);
   }
-  stat(file, root) {
-    return this.call(file, "stat", {}, root);
+  stat(file, root, signal) {
+    return this.call(file, "stat", {}, root, signal);
   }
   list(file, offset = 0) {
     return this.call(file, "list", { offset, limit: 200 });
@@ -377,20 +409,25 @@ class RemoteFiles extends EventEmitter {
   discardUpload(file, signature, root) {
     return this.call(file, "discardUpload", { signature }, root);
   }
-  async chunk(file, offset, length, root) {
-    const r = await this.call(file, "read", { offset, length }, root);
+  async chunk(file, offset, length, root, signal) {
+    const r = await this.call(file, "read", { offset, length }, root, signal);
     return { ...r, data: Buffer.from(r.data, "base64") };
   }
-  async read(file, limit = 16 * 1024 * 1024) {
+  async read(file, limit = MAX_FILE, options) {
+    return (await this.readSnapshot(file, limit, options)).data;
+  }
+  async readSnapshot(file, limit = MAX_FILE, { signal, onProgress, root = this.rootFor(file) } = {}) {
+    throwIfAborted(signal);
     for (let attempt = 0; attempt < 2; attempt++) {
-      const before = await this.chunk(file, 0, 262144);
+      const before = await this.chunk(file, 0, 262144, root, signal);
       if (before.size > limit)
-        throw new Error(
-          `File exceeds the ${Math.round(limit / 1024 / 1024)} MiB viewing limit`,
-        );
+        throw fileSizeError(before.size, limit);
       const chunks = [before.data];
+      let loaded = before.data.length;
+      onProgress?.({ loaded, total: before.size, attempt });
       let consistent = true;
       for (let start = 262144; start < before.size; start += 4 * 262144) {
+        throwIfAborted(signal);
         const offsets = [];
         for (
           let offset = start;
@@ -400,22 +437,26 @@ class RemoteFiles extends EventEmitter {
           offsets.push(offset);
         const batch = await Promise.all(
           offsets.map((offset) =>
-            this.chunk(file, offset, Math.min(262144, before.size - offset)),
+            this.chunk(file, offset, Math.min(262144, before.size - offset), root, signal),
           ),
         );
         for (const chunk of batch) {
           chunks.push(chunk.data);
+          loaded += chunk.data.length;
           if (chunk.signature !== before.signature) consistent = false;
         }
+        onProgress?.({ loaded, total: before.size, attempt });
       }
-      const after = await this.stat(file);
+      throwIfAborted(signal);
+      const after = await this.stat(file, root, signal);
+      throwIfAborted(signal);
       const data = Buffer.concat(chunks);
       if (
         consistent &&
         before.signature === after.signature &&
         data.length === after.size
       )
-        return data;
+        return { data, stat: after };
     }
     throw new Error(
       "File is being replaced; retry after the Agent finishes saving",
@@ -487,6 +528,7 @@ class RemoteFiles extends EventEmitter {
                     : previous === null
                       ? "created"
                       : "changed",
+                signature: item.signature,
               });
             }
           }
@@ -520,4 +562,4 @@ class RemoteFiles extends EventEmitter {
     this.removeAllListeners();
   }
 }
-module.exports = { FileChannel, RemoteFiles, relative, entryNameError };
+module.exports = { FileChannel, RemoteFiles, relative, entryNameError, MAX_FILE, throwIfAborted, fileSizeError };

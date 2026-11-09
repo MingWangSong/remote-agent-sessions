@@ -34,6 +34,8 @@ Right-click a session → **Session Files**. Its fixed working root appears in V
 
 Transfers reuse OpenSSH, show progress and support cancellation. Regular-file replacements ask first and commit after staging completes.
 
+Supported files open directly with cancellable loading progress. Repeated clicks share the same read; already-open documents focus immediately with unsaved edits preserved. Files above the 16 MiB editor limit offer Download before content transfer. Slower earlier requests keep newer editor selections in focus.
+
 ## Every document gets its own tab.
 
 ![Independent HTML and built-in Markdown previews in a single editor group](https://raw.githubusercontent.com/MingWangSong/remote-agent-sessions/v3.3.2/media/showcase/06-document-previews.png)

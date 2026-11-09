@@ -158,6 +158,48 @@ test("remote files: unsupported mutations are rejected and viewing size is cappe
   assert.equal(await fs.readFile(path.join(f.dir, "x"), "utf8"), "unchanged");
   await assert.rejects(f.files.read(path.join(f.dir, "x"), 2), /viewing limit/);
 });
+test("remote files: cancelled chunked reads stop scheduling batches and keep the shared channel alive", async (t) => {
+  const f = await fixture(t);
+  const large = path.join(f.dir, "large.txt"), small = path.join(f.dir, "small.txt");
+  await fs.writeFile(large, Buffer.alloc(3 * 1024 * 1024, 65));
+  await fs.writeFile(small, "still available");
+  const abort = new AbortController(), original = f.files.chunk;
+  let chunks = 0;
+  f.files.chunk = function (...args) { chunks++; return original.apply(this, args); };
+  await assert.rejects(f.files.read(large, undefined, {
+    signal: abort.signal,
+    onProgress: ({ loaded, total }) => {
+      assert.equal(loaded, 262144);
+      assert.equal(total, 3 * 1024 * 1024);
+      abort.abort();
+    },
+  }), { name: "AbortError" });
+  assert.equal(chunks, 1);
+  assert.equal((await f.files.read(small)).toString(), "still available");
+  assert.equal(f.launches(), 1);
+});
+test("remote files: cancellation returns before an in-flight reply; unrelated reads and late failures remain safe", async (t) => {
+  const f = await fixture(t), original = f.files.channel.at.bind(f.files.channel);
+  const abort = new AbortController();
+  let rejectLate, started;
+  const entered = new Promise(resolve => { started = resolve; });
+  f.files.channel.at = (...args) => {
+    if (args[1] === "read" && args[2].path === "slow") {
+      started();
+      return new Promise((_resolve, reject) => { rejectLate = reject; });
+    }
+    return original(...args);
+  };
+  await fs.writeFile(path.join(f.dir, "other"), "other reader");
+  const pending = f.files.read(path.join(f.dir, "slow"), undefined, { signal: abort.signal });
+  await entered;
+  abort.abort();
+  await assert.rejects(pending, { name: "AbortError" });
+  assert.equal((await f.files.read(path.join(f.dir, "other"))).toString(), "other reader");
+  rejectLate(Error("late network failure"));
+  await eventual(() => f.files.active === 0);
+  assert.equal(f.launches(), 1);
+});
 test("remote files: a failed root backs off without starving another root, and refresh retries explicitly", async (t) => {
   const files = new RemoteFiles({});
   t.after(() => files.dispose());

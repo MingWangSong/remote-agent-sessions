@@ -2,7 +2,7 @@
 const vscode = require("vscode");
 const path = require("node:path").posix;
 const { randomBytes } = require("node:crypto");
-const { RemoteFiles, relative, entryNameError } = require("./remoteFiles");
+const { RemoteFiles, relative, entryNameError, MAX_FILE, throwIfAborted, fileSizeError } = require("./remoteFiles");
 const { HtmlPreviews } = require("./htmlPreviews");
 const { SessionFileRoots } = require("./sessionFileRoots");
 const transfers = require("./fileTransfers");
@@ -17,6 +17,11 @@ function fileType(type) {
     : type === "file"
       ? vscode.FileType.File
       : vscode.FileType.SymbolicLink;
+}
+function fileSize(bytes) {
+  return bytes >= 1024 * 1024
+    ? `${(Math.ceil(bytes / 1024 / 1024 * 100) / 100).toFixed(2)} MiB`
+    : bytes >= 1024 ? `${Math.ceil(bytes / 1024)} KiB` : `${bytes} B`;
 }
 
 class SessionWorkspace {
@@ -41,6 +46,8 @@ class SessionWorkspace {
     this.treeWatches = new Map();
     this.documents = new Map();
     this.transferAborts = new Set();
+    this.openingFiles = new Map();
+    this.openSequence = 0;
     this.cache = new Map();
     this.limits = new Map();
     this.expanded = new Set(
@@ -123,7 +130,7 @@ class SessionWorkspace {
           (...args) =>
             Promise.resolve()
               .then(() =>
-                ["openFile", "previewHtml", "linkDirectory"].includes(id)
+                ["previewHtml", "linkDirectory"].includes(id)
                   ? vscode.window.withProgress(
                       {
                         location: vscode.ProgressLocation.Notification,
@@ -131,9 +138,7 @@ class SessionWorkspace {
                           "TmuxDock · " +
                           (id === "previewHtml"
                             ? "Loading HTML preview"
-                            : id === "openFile"
-                              ? "Opening remote file"
-                              : "Link working directory"),
+                            : "Link working directory"),
                       },
                       () => fn(...args),
                     )
@@ -220,6 +225,7 @@ class SessionWorkspace {
       .getConfiguration("remoteAgentSessions")
       .get("sessionFilesEnabled", true);
     if (!this.enabled) {
+      for (const operation of this.openingFiles.values()) operation.abort.abort();
       for (const abort of this.transferAborts) abort.abort();
       this.clearTreeWatches();
       for (const w of this.documents.values()) w.dispose();
@@ -288,6 +294,10 @@ class SessionWorkspace {
       ]);
       this.services.set(controller.host.id, files);
       files.on("change", (file, change) => {
+        for (const operation of this.openingFiles.values())
+          if (operation.files === files && operation.resource.path === file &&
+              operation.snapshot && change?.signature !== operation.snapshot.stat.signature)
+            operation.snapshot = undefined;
         const resources = new Map();
         const base = uri(controller.host.id, file);
         resources.set(base.toString(), base);
@@ -385,10 +395,14 @@ class SessionWorkspace {
       onDidChangeFile: this.fileEmitter.event,
       stat: (u) =>
         wrap(async () => {
-          const s = await self.access(u).stat(u.path);
+          const files = self.access(u);
+          const s = self.openingSnapshot(u, files)?.stat || await files.stat(u.path);
           return { ...s, type: fileType(s.type) };
         }),
-      readFile: (u) => wrap(() => self.access(u).read(u.path)),
+      readFile: (u) => wrap(() => {
+        const files = self.access(u);
+        return self.openingSnapshot(u, files)?.data || files.read(u.path);
+      }),
       readDirectory: (u) =>
         wrap(async () => {
           const f = self.access(u);
@@ -702,23 +716,122 @@ class SessionWorkspace {
       true,
     );
   }
-  async openFile(item) {
-    if (!item?.uri) return;
+  openingSnapshot(resource, files) {
+    const operation = this.openingFiles.get(resource.toString());
+    // A verified snapshot only lives until this native open finishes. Reuse it
+    // for stat/readFile so adding cancellable loading never downloads twice.
+    if (operation?.files === files && files.roots.has(operation.root))
+      return operation.snapshot;
+  }
+  openFile(item) {
+    if (!item?.uri) return Promise.resolve();
+    const key = item.uri.toString();
+    const existing = this.openingFiles.get(key);
+    if (existing) return existing.promise;
+    const operation = {
+      resource: item.uri,
+      abort: new AbortController(),
+      group: vscode.window.tabGroups.activeTabGroup,
+      sequence: ++this.openSequence,
+      preview: vscode.window.activeTextEditor?.document.uri.toString() !== key,
+    };
+    operation.activeTab = operation.group.activeTab;
+    this.openingFiles.set(key, operation);
+    operation.promise = Promise.resolve()
+      .then(() => this.loadFile(item, operation))
+      .catch(async (error) => {
+        if (operation.abort.signal.aborted || error.name === "AbortError") return;
+        if (error.code === "FileTooLarge") return this.offerFileDownload(item, error.size);
+        // Release before showing Retry, so retrying cannot join its own task.
+        if (this.openingFiles.get(key) === operation) this.openingFiles.delete(key);
+        return this.fileOpenError(item, error);
+      })
+      .finally(() => {
+        if (this.openingFiles.get(key) === operation) this.openingFiles.delete(key);
+      });
+    return operation.promise;
+  }
+  async loadFile(item, operation) {
     this.fromUri(item.uri);
-    const s = await this.access(item.uri).stat(item.uri.path);
-    if (s.size > 2 * 1024 * 1024) {
-      const answer = await vscode.window.showWarningMessage(
-        "This file is larger than 2 MiB. Open it in the remote editor?",
-        "Open",
-      );
-      if (answer !== "Open") return;
-    }
-    await vscode.commands.executeCommand("vscode.open", item.uri, {
-      preview:
-        vscode.window.activeTextEditor?.document.uri.toString() !==
-        item.uri.toString(),
-      viewColumn: vscode.ViewColumn.Active,
+    operation.files = this.access(item.uri);
+    operation.root = operation.files.rootFor(item.uri.path);
+    // VS Code already owns the current document (including unsaved edits).
+    // Focus it immediately instead of doing another SSH stat/read.
+    const key = item.uri.toString();
+    if (vscode.workspace.textDocuments.some(doc => !doc.isClosed && doc.uri.toString() === key) ||
+        vscode.window.tabGroups.all.some(group => group.tabs.some(tab =>
+          tab.input instanceof vscode.TabInputCustom && tab.input.uri.toString() === key)))
+      return this.openFileEditor(item, operation);
+    return vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title: "TmuxDock · Opening " + path.basename(item.uri.path),
+      cancellable: true,
+    }, async (progress, token) => {
+      const { signal } = operation.abort;
+      const listener = token.onCancellationRequested(() => operation.abort.abort());
+      if (token.isCancellationRequested) operation.abort.abort();
+      try {
+        progress.report({ message: "Checking file on " + (item.context?.controller.host.label || item.uri.authority) });
+        const info = await operation.files.stat(item.uri.path, operation.root, signal);
+        throwIfAborted(signal);
+        if (info.size > MAX_FILE) throw fileSizeError(info.size);
+        operation.snapshot = await operation.files.readSnapshot(item.uri.path, MAX_FILE, {
+          signal,
+          root: operation.root,
+          onProgress: ({ loaded, total, attempt }) => progress.report({
+            message: `${attempt ? "File changed; reading again" : "Reading"} ${fileSize(loaded)} / ${fileSize(total)}`,
+          }),
+        });
+        throwIfAborted(signal);
+        progress.report({ message: "Opening in this window" });
+        return await this.openFileEditor(item, operation);
+      } finally {
+        listener.dispose();
+      }
     });
+  }
+  openFileEditor(item, operation) {
+    throwIfAborted(operation.abort.signal);
+    const group = operation.group;
+    const stillExists = vscode.window.tabGroups.all.includes(group);
+    const preserveFocus = !stillExists || vscode.window.tabGroups.activeTabGroup !== group ||
+      group.activeTab !== operation.activeTab || operation.sequence !== this.openSequence;
+    return vscode.commands.executeCommand("vscode.open", item.uri, {
+      // A slow earlier click must not replace a newer preview or steal focus.
+      preview: preserveFocus ? false : operation.preview,
+      preserveFocus,
+      viewColumn: stillExists ? group.viewColumn : vscode.ViewColumn.Active,
+    });
+  }
+  async offerFileDownload(item, size) {
+    const answer = await vscode.window.showWarningMessage(
+      `${path.basename(item.uri.path)} is ${fileSize(size)}. Session Files can open and save files up to 16 MiB. Download this file to open it locally.`,
+      "Download",
+    );
+    if (answer === "Download" && this.enabled && !this.disposed)
+      return this.downloadFile(item);
+  }
+  async fileOpenError(item, error) {
+    const name = path.basename(item.uri.path);
+    if (error.code === "NotFound") {
+      const answer = await vscode.window.showErrorMessage(
+        `TmuxDock · ${name} no longer exists. Refresh Session Files to locate it.`, "Refresh Files",
+      );
+      if (answer === "Refresh Files")
+        return vscode.commands.executeCommand("remoteAgentSessions.refreshFiles");
+      return;
+    }
+    if (error.code === "NoPermissions") {
+      await vscode.window.showErrorMessage(
+        `TmuxDock · Cannot access ${name}. Check remote permissions and the linked working directory. ${error.message}`,
+      );
+      return;
+    }
+    const connection = /disconnected|not connected|timed out|ECONN|EPIPE|closed|ssh.*(failed|exited)/i.test(error.message);
+    const answer = await vscode.window.showErrorMessage(
+      `TmuxDock · ${connection ? "Connection interrupted while opening" : "Unable to open"} ${name}. ${error.message}`, "Retry",
+    );
+    if (answer === "Retry" && this.enabled && !this.disposed) return this.openFile(item);
   }
   entryPath(item, mutable = false) {
     if (
@@ -938,6 +1051,7 @@ class SessionWorkspace {
   }
   dispose() {
     this.disposed = true;
+    for (const operation of this.openingFiles.values()) operation.abort.abort();
     for (const abort of this.transferAborts) abort.abort();
     clearInterval(this.reconcileTimer);
     this.clearTreeWatches();

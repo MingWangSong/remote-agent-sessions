@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.3 — 2026-11-09
+
+- Open supported files directly without the 2 MiB confirmation. Show cancellable native progress with the filename, host and transferred size, and reuse in-flight opens for repeated clicks.
+- Detect files above 16 MiB before content transfer and offer Download. Give missing-file, permission and connection failures specific guidance with Refresh or Retry where applicable.
+- Cancel only the requested read, retain the shared SSH channel, and reuse the verified snapshot when handing the file to VS Code's native editor. Focus loaded documents immediately without another read and preserve unsaved edits.
+- Keep slower earlier opens from stealing focus or replacing a newer preview; preserve the user's editor groups and native image editors.
+
 ## 3.3.2 — 2026-11-06
 
 - Refresh the GitHub overview and dedicated Marketplace copy with a dark, technical gallery for session files, native editing, recursive uploads and independent previews. Reuse the original session/recovery images.

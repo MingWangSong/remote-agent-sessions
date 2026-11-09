@@ -112,6 +112,7 @@ exports.run = async (api, controller, check) => {
     },
   );
   let doc, htmlPreview;
+  await require("./fileOpening").run(files, controller, root, check);
   await check(
     "Markdown preview: reuses VS Code's built-in renderer and tracks remote document updates",
     async () => {
