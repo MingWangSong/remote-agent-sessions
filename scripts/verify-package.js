@@ -46,8 +46,14 @@ const run = promisify(execFile);
   }
   assert.ok(images.every(url => url.startsWith('https://') && url.endsWith('.png')), 'Marketplace images must be HTTPS PNGs');
   for(const dependency of ['proper-lockfile','graceful-fs','retry','signal-exit','parse5','entities']) {
-    assert.ok(files.includes('extension/node_modules/'+dependency+'/package.json'),'Missing runtime dependency '+dependency);
+    assert.ok(files.some(file=>file.endsWith('/node_modules/'+dependency+'/package.json')),'Missing runtime dependency '+dependency);
   }
+  const temp = await fs.mkdtemp(path.join(require('node:os').tmpdir(), 'tmuxdock-package-'));
+  try {
+    await run('unzip', ['-q', vsix, '-d', temp]);
+    const env = { ...process.env }; delete env.NODE_PATH;
+    await run(process.execPath, ['-e', `const assert=require('node:assert/strict');const helper=require(process.argv[1]);assert.ok(helper.addPreviewSelectionHelper(Buffer.from('<!doctype html><head></head><body>packaged runtime</body>')).includes(Buffer.from('data-tmuxdock-copy')));`, path.join(temp,'extension/src/previewClipboard.js')], { env });
+  } finally { await fs.rm(temp, { recursive: true, force: true }); }
   const bytes=await fs.readFile(vsix);
   const checksum=createHash('sha256').update(bytes).digest('hex');
   await fs.writeFile(vsix+'.sha256',checksum+'  '+path.basename(vsix)+'\n');
