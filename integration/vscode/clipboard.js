@@ -14,6 +14,8 @@ async function browser() {
     const message = JSON.parse(event.data);
     if (message.method === "Runtime.executionContextCreated") contexts.set(message.sessionId + ":" + message.params.context.id, { ...message.params.context, session: message.sessionId });
     if (message.method === "Runtime.executionContextDestroyed") contexts.delete(message.sessionId + ":" + message.params.executionContextId);
+    if (message.method === "Runtime.executionContextsCleared")
+      for (const [key, context] of contexts) if (context.session === message.sessionId) contexts.delete(key);
     if (!pending.has(message.id)) return;
     const request = pending.get(message.id); pending.delete(message.id); clearTimeout(request.timer);
     message.error ? request.reject(Error(JSON.stringify(message.error))) : request.resolve(message.result);
@@ -76,11 +78,16 @@ exports.run = async (files, controller, root, originalPreview, check) => {
   const text = "复制渲染文字 · Unicode\nconst answer = 42;\nsecond line";
   const html = strict => `<!doctype html><html><head>${strict ? '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'none\'; style-src \'unsafe-inline\'">' : ''}<style>body{background:#123;color:white}</style></head><body><pre id="copy-target">${text}</pre><input id="copy-input" value="field text 中文"><script>window.pageScriptRan=true;</script></body></html>`;
   const select = async preview => {
-    const context = await client.find(preview.server.origin);
-    const selected = await client.evaluate(context, `(()=>{const node=document.getElementById('copy-target');node.tabIndex=0;node.focus();const range=document.createRange();range.selectNodeContents(node);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);return selection.toString();})()`);
-    assert.equal(selected, text);
-    await pause(400); // The workbench's native webview focus tracker polls at 250ms.
-    return context;
+    for (let attempt = 0; attempt < 20; attempt++) {
+      try {
+        const context = await client.find(preview.server.origin);
+        const selected = await client.evaluate(context, `(()=>{const node=document.getElementById('copy-target');node.tabIndex=0;node.focus();const range=document.createRange();range.selectNodeContents(node);const selection=window.getSelection();selection.removeAllRanges();selection.addRange(range);return selection.toString();})()`);
+        assert.equal(selected, text);
+        await pause(400); // Native focus tracking polls at 250ms; initial watch events can also reload once.
+        if (await client.evaluate(context, "window.getSelection().toString()") === text) return context;
+      } catch (error) { if (attempt === 19) throw error; }
+    }
+    throw Error("HTML selection did not remain stable after loading");
   };
   const expectClipboard = async expected => {
     for (let i = 0; i < 50; i++) {
