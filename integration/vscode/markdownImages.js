@@ -27,7 +27,7 @@ exports.run = async (files, controller, root, check) => {
       assert.deepEqual(Buffer.from(await vscode.workspace.fs.readFile(resource.with({ path: path.join(directory, names[0]) }))), pixel);
       report.reads.length = 0;
       await vscode.commands.executeCommand("remoteAgentSessions.previewMarkdown", { uri: resource, context: files.current });
-      previewUri = vscode.workspace.textDocuments.find(d => d.uri.path === target && d.uri.query.startsWith("tmuxdockPreview="))?.uri;
+      previewUri = vscode.workspace.textDocuments.find(d => d.uri.path === target && d.uri.fragment.startsWith("tmuxdockPreview="))?.uri;
       assert.ok(previewUri);
       client = await browser();
       for (let i = 0; i < 100; i++) {

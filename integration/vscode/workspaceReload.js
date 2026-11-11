@@ -177,7 +177,7 @@ exports.run = async () => {
       vscode.workspace.textDocuments.filter(
         (d) =>
           d.uri.path.endsWith("README.md") &&
-          d.uri.query.startsWith("tmuxdockPreview="),
+          d.uri.fragment.startsWith("tmuxdockPreview="),
       );
     await wait(() => markdown().length === 2);
     const note = vscode.workspace.textDocuments.find(

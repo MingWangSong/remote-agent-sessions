@@ -6,6 +6,7 @@ const path = localPath.posix;
 const { randomUUID } = require("node:crypto");
 const { relative, entryNameError } = require("./remoteFiles");
 const transfers = require("./fileTransfers");
+const { isMarkdownPreview } = require("./markdownPreview");
 const MIME = "application/vnd.code.tree.remoteagentsessions.files";
 const within = (parent, file) =>
   file === parent || file.startsWith(parent === "/" ? "/" : parent + "/");
@@ -212,7 +213,7 @@ class SessionFileActions {
           tab.input instanceof vscode.TabInputCustom &&
           tab.input.viewType === "vscode.markdown.preview.editor" &&
           tab.input.uri.authority === source.authority &&
-          tab.input.uri.query.startsWith("tmuxdockPreview=") &&
+          isMarkdownPreview(tab.input.uri) &&
           within(source.path, tab.input.uri.path),
       );
     if (tabs.some((tab) => tab.isDirty))

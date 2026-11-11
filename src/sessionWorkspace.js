@@ -1,7 +1,7 @@
 "use strict";
 const vscode = require("vscode");
 const path = require("node:path").posix;
-const { randomBytes } = require("node:crypto");
+const { markdownPreviewUri } = require("./markdownPreview");
 const { RemoteFiles, relative, entryNameError, MAX_FILE, throwIfAborted, fileSizeError } = require("./remoteFiles");
 const { HtmlPreviews } = require("./htmlPreviews");
 const { SessionFileRoots } = require("./sessionFileRoots");
@@ -199,9 +199,7 @@ class SessionWorkspace {
         throw new Error("Select a Markdown file in Session Files");
       // A unique document URI gives each explicit preview its own native tab,
       // including repeated previews of the same file. File reads stay path-based.
-      const preview = resource.with({
-        query: "tmuxdockPreview=" + randomBytes(8).toString("hex"),
-      });
+      const preview = markdownPreviewUri(resource);
       const doc = await vscode.workspace.openTextDocument(preview);
       this.watchDocument(doc);
       await vscode.commands.executeCommand(

@@ -127,7 +127,7 @@ exports.run = async (api, controller, check) => {
       const source = vscode.workspace.textDocuments.find(
         (d) =>
           d.uri.path === item.uri.path &&
-          d.uri.query.startsWith("tmuxdockPreview="),
+          d.uri.fragment.startsWith("tmuxdockPreview="),
       );
       assert.ok(source);
       assert.equal(source.languageId, "markdown");
@@ -287,7 +287,7 @@ exports.run = async (api, controller, check) => {
           .filter(
             (d) =>
               d.uri.path === first.uri.path &&
-              d.uri.query.startsWith("tmuxdockPreview="),
+              d.uri.fragment.startsWith("tmuxdockPreview="),
           )
           .every((d) => d.getText().includes("All original previews update")),
       );
@@ -302,7 +302,7 @@ exports.run = async (api, controller, check) => {
           .filter(
             (d) =>
               d.uri.path === first.uri.path &&
-              d.uri.query.startsWith("tmuxdockPreview="),
+              d.uri.fragment.startsWith("tmuxdockPreview="),
           )
           .every((d) => d.getText().includes("Surviving previews update")),
       );
