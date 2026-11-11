@@ -4,6 +4,7 @@
 
 - Fix false remote-file timeouts on slow links: the serial helper's head response uses an inactivity timeout refreshed by arriving bytes; queued requests receive their timeout when preceding responses finish. Keep the existing four-request window and timeout for silent connections.
 - Update file-opening progress after each completed chunk. A genuine read timeout offers Retry and Download; retain cancellation, binary integrity, file-change detection and shared-channel recovery.
+- Serialize sidebar reveal operations and skip superseded targets so late selection updates cannot override the active terminal after a window reload.
 - Cover queued slow responses, long fragmented responses, silent-channel recovery and timeout actions. Reproduce and verify a 2.47 MiB PDF read over the affected SSH link without opening desktop windows.
 
 ## 3.3.6 — 2026-11-11

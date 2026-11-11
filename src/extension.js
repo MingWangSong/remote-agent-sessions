@@ -338,11 +338,19 @@ async function activate(context) {
   const view = vscode.window.createTreeView('remoteAgentSessions.sessions', {
     treeDataProvider: provider, dragAndDropController: provider, canSelectMany: true
   });
-  syncTreeSelection = ({ controller, entry }) => {
-    if (!view.visible) return;
-    const current = provider.controllers.find(candidate => candidate.host.id === controller.host.id);
-    const selected = current?.manager.entries.find(candidate => candidate.id === entry.id);
-    if (selected) view.reveal(new SessionTreeItem(current, selected), { select: true, focus: false }).catch(() => {});
+  let latestSelection;
+  let pendingSelection = Promise.resolve();
+  syncTreeSelection = context => {
+    latestSelection = context;
+    // Native reveals are asynchronous. Finish an older reveal before applying
+    // the latest target, so an old tab cannot overwrite the current selection.
+    pendingSelection = pendingSelection.then(async () => {
+      if (context !== latestSelection || !view.visible) return;
+      const { controller, entry } = context;
+      const current = provider.controllers.find(candidate => candidate.host.id === controller.host.id);
+      const selected = current?.manager.entries.find(candidate => candidate.id === entry.id);
+      if (selected) await view.reveal(new SessionTreeItem(current, selected), { select: true, focus: false });
+    }).catch(() => {});
   };
   context.subscriptions.push(status, provider, view);
 
