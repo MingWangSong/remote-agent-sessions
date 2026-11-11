@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.3.6 — 2026-11-11
+
+- Fix relative images in native Markdown previews. Keep independent tab identities in URI fragments so Markdown's resource-root permissions allow image requests without a query.
+- Preserve native rendering, remote source files, independent tabs, current editor groups, file-move retargeting and Reload Window restoration. Reopen previews created by older versions to load the corrected resource root.
+- Add real VS Code/Xvfb acceptance that checks all 15 relative PNGs decode inside the rendered preview, along with a regression check for preview URI identity.
+
 ## 3.3.5 — 2026-11-09
 
 - Fix desktop image/file/folder uploads when VS Code's tree drag-and-drop supplies a serialized cancellation token without its event method. Keep native upload progress cancellation available.
