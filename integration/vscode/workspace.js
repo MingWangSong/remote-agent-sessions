@@ -147,6 +147,7 @@ exports.run = async (api, controller, check) => {
       await wait(() => source.getText().includes("Generation two"));
     },
   );
+  await require("./markdownImages").run(files, controller, root, check);
   await check(
     "Session files: native editing saves to the remote host and Agent replacements refresh the document",
     async () => {

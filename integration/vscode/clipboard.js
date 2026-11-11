@@ -31,10 +31,10 @@ async function browser() {
     if (response.exceptionDetails) throw Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text);
     return response.result?.value;
   };
-  const find = async (origin, host = false) => {
+  const findDocument = async (expression, description) => {
     for (let attempt = 0; attempt < 100; attempt++) {
       const { targetInfos } = await send("Target.getTargets");
-      for (const target of targetInfos.filter(t => t.url.startsWith(origin) || t.url.startsWith("vscode-webview:") || t.url.includes("workbench"))) {
+      for (const target of targetInfos.filter(t => t.type === "iframe" || t.url.startsWith("vscode-webview:") || t.url.includes("workbench"))) {
         try {
           let session = sessions.get(target.targetId);
           if (!session) {
@@ -44,17 +44,18 @@ async function browser() {
           }
           for (const context of contexts.values()) {
             if (context.session !== session || !context.auxData?.isDefault) continue;
-            const matches = await evaluate(context, host
-              ? `document.getElementById('page')?.src.startsWith(${JSON.stringify(origin)}) || false`
-              : `location.origin === ${JSON.stringify(origin)} && !!document.getElementById('copy-target')`);
+            const matches = await evaluate(context, expression);
             if (matches) return context;
           }
         } catch { /* A hidden/reloading webview may replace its context. */ }
       }
       await pause(100);
     }
-    throw Error("Clipboard document did not become ready: " + origin + (host ? " (host)" : ""));
+    throw Error("Preview document did not become ready: " + description);
   };
+  const find = (origin, host = false) => findDocument(host
+    ? `document.getElementById('page')?.src.startsWith(${JSON.stringify(origin)}) || false`
+    : `location.origin === ${JSON.stringify(origin)} && !!document.getElementById('copy-target')`, origin);
   const pressCopy = async modifiers => {
     const { targetInfos } = await send("Target.getTargets");
     const target = targetInfos.find(t => t.type === "page" && t.url.includes("workbench"));
@@ -68,8 +69,9 @@ async function browser() {
     for (const type of ["keyDown", "keyUp"])
       await send("Input.dispatchKeyEvent", { type, key: "c", code: "KeyC", windowsVirtualKeyCode: 67, modifiers }, session);
   };
-  return { send, evaluate, find, pressCopy, close: () => socket.close() };
+  return { send, evaluate, find, findDocument, pressCopy, close: () => socket.close() };
 }
+exports.browser = browser;
 
 exports.run = async (files, controller, root, originalPreview, check) => {
   const client = await browser(), clipboard = await vscode.env.clipboard.readText();
