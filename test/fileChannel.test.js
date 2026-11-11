@@ -10,6 +10,9 @@ function fixture(t, { delay = 0, fragmentBytes = 65536, fragmentDelay = 0, stall
     launches++;
     const child = new EventEmitter();
     child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    // A real SSH child keeps the event loop alive even when it is silent.
+    // Keep that property in this in-memory transport while its timer is unref'd.
+    const alive = setInterval(() => {}, 1000);
     let input = Buffer.alloc(0), queue = [], busy = false, ended = false, timer;
     const next = () => {
       if (busy || ended || !queue.length) return;
@@ -41,7 +44,7 @@ function fixture(t, { delay = 0, fragmentBytes = 65536, fragmentDelay = 0, stall
     } });
     child.kill = () => {
       if (ended) return;
-      ended = true; clearTimeout(timer); queue = [];
+      ended = true; clearTimeout(timer); clearInterval(alive); queue = [];
       setImmediate(() => child.emit("exit", null));
     };
     return child;
