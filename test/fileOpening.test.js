@@ -192,3 +192,15 @@ test("file opening: connection failures offer working Retry; missing and denied 
   assert.match(f.logs.errors[2].message, /Check remote permissions/);
   assert.equal(f.logs.opens.length, 1);
 });
+
+test("file opening: a silent transfer timeout offers Retry and Download without misclassifying a progressing read", async () => {
+  const f = fixture();
+  f.files.readSnapshot = async () => { throw Object.assign(Error("Remote file request timed out"), { code: "RemoteFileTimeout" }); };
+  f.logs.errorAnswers = ["Download"];
+  await f.workspace.openFile(f.item("report.pdf"));
+  assert.match(f.logs.errors[0].message, /Reading report\.pdf timed out/);
+  assert.deepEqual(f.logs.errors[0].actions, ["Retry", "Download"]);
+  assert.equal(f.logs.downloads.length, 1);
+  assert.equal(f.logs.opens.length, 0);
+  assert.equal(f.workspace.openingFiles.size, 0);
+});

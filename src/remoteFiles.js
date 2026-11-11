@@ -83,6 +83,9 @@ class FileChannel extends EventEmitter {
       );
       child.stdout.on("data", (chunk) => {
         if (this.child !== child) return;
+        // The helper answers in FIFO order. Bytes received belong to the head
+        // response; queued requests must not expire while it is still arriving.
+        if (chunk.length) this.pending.values().next().value?.timer?.refresh();
         buffer = Buffer.concat([buffer, chunk]);
         while (buffer.length >= 4) {
           const size = buffer.readUInt32BE();
@@ -103,6 +106,7 @@ class FileChannel extends EventEmitter {
           if (!request) continue;
           this.pending.delete(message.id);
           clearTimeout(request.timer);
+          this.armTimeout();
           if (message.error)
             request.reject(
               Object.assign(new Error(message.error.message), {
@@ -126,6 +130,22 @@ class FileChannel extends EventEmitter {
     });
     return this.starting;
   }
+  armTimeout() {
+    const head = this.pending.entries().next().value;
+    if (!head) return;
+    const [id, request] = head;
+    if (request.timer) return;
+    request.timer = setTimeout(() => {
+      this.pending.delete(id);
+      request.reject(Object.assign(new Error("Remote file request timed out"), {
+        code: "RemoteFileTimeout", operation: request.op,
+      }));
+      // A silent head blocks every subsequent reply. Reconnect this owned
+      // channel rather than accumulating more requests behind a stalled helper.
+      if (this.child === request.child) request.child.kill();
+    }, this.timeout);
+    request.timer.unref?.();
+  }
   send(op, params) {
     return new Promise((resolve, reject) => {
       const child = this.child;
@@ -139,14 +159,8 @@ class FileChannel extends EventEmitter {
         reject(new Error("File request is too large"));
         return;
       }
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error("Remote file request timed out"));
-        // Drop this owned channel so queued data cannot grow without a bound.
-        if (this.child === child) child.kill();
-      }, this.timeout);
-      timer.unref?.();
-      this.pending.set(id, { resolve, reject, timer });
+      this.pending.set(id, { resolve, reject, child, op, timer: null });
+      this.armTimeout();
       const header = Buffer.alloc(4);
       header.writeUInt32BE(body.length);
       child.stdin.write(Buffer.concat([header, body]));
@@ -436,16 +450,17 @@ class RemoteFiles extends EventEmitter {
         )
           offsets.push(offset);
         const batch = await Promise.all(
-          offsets.map((offset) =>
-            this.chunk(file, offset, Math.min(262144, before.size - offset), root, signal),
-          ),
+          offsets.map(async (offset) => {
+            const chunk = await this.chunk(file, offset, Math.min(262144, before.size - offset), root, signal);
+            loaded += chunk.data.length;
+            onProgress?.({ loaded, total: before.size, attempt });
+            return chunk;
+          }),
         );
         for (const chunk of batch) {
           chunks.push(chunk.data);
-          loaded += chunk.data.length;
           if (chunk.signature !== before.signature) consistent = false;
         }
-        onProgress?.({ loaded, total: before.size, attempt });
       }
       throwIfAborted(signal);
       const after = await this.stat(file, root, signal);

@@ -866,6 +866,15 @@ class SessionWorkspace {
       );
       return;
     }
+    if (error.code === "RemoteFileTimeout") {
+      const answer = await vscode.window.showErrorMessage(
+        `TmuxDock · Reading ${name} timed out. Retry or download this file.`, "Retry", "Download",
+      );
+      if (!this.enabled || this.disposed) return;
+      if (answer === "Retry") return this.openFile(item);
+      if (answer === "Download") return this.downloadFile(item);
+      return;
+    }
     const connection = /disconnected|not connected|timed out|ECONN|EPIPE|closed|ssh.*(failed|exited)/i.test(error.message);
     const answer = await vscode.window.showErrorMessage(
       `TmuxDock · ${connection ? "Connection interrupted while opening" : "Unable to open"} ${name}. ${error.message}`, "Retry",
