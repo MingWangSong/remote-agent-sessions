@@ -87,6 +87,11 @@ exports.run = async () => {
         items.find((e) => e.name === name),
       );
       await wait(() => p.server?.subscriptions.size > 0);
+      // Starting the local server no longer waits for an SSH stat. VS Code's
+      // native tab event can arrive after open() resolves; snapshot only once
+      // the actual permanent tab exists, not during that UI handoff.
+      await wait(() => vscode.window.tabGroups.all.some(group => group.tabs.some(tab =>
+        tab.label === p.panel.title && !tab.isPreview)));
     }
     assert.equal(
       vscode.window.tabGroups.all.length,
