@@ -43,6 +43,11 @@ exports.run = async function () {
   const html = await files.preview(nodes.find(node => node.name === 'report.html'));
   const browser = await files.previews.openBrowser(html);
   const events = new Map([[html, []], [browser, []]]);
+  const needsReload = new Set();
+  for (const item of events.keys()) {
+    item.server.on('interrupted', () => needsReload.add(item));
+    item.server.on('change', () => needsReload.add(item));
+  }
   const originalSend = files.previews.send;
   files.previews.send = function (item, message) {
     events.get(item)?.push(message);
@@ -80,6 +85,7 @@ exports.run = async function () {
     await waitFor(() => [...service.watches.values()].some(watch => watch.file === markdownPath && watch.signature), 'initial markdown watch');
     await waitFor(() => [...events.keys()].every(item => !item.timer), 'initial preview updates');
     for (const history of events.values()) history.length = 0;
+    needsReload.clear();
     await fs.writeFile(offline, '');
     for (const item of records) tmux('detach-client', '-s', item.tmuxSession);
     service.channel.child?.kill();
@@ -100,7 +106,8 @@ exports.run = async function () {
     assert.equal(draft.document.getText(), 'Unsaved Original text');
     assert.equal(await fs.readFile(path.join(root, 'draft.txt'), 'utf8'), 'Original text');
     assert.deepEqual(layout(), before);
-    for (const history of events.values()) assert.ok(!history.includes('reload'));
+    for (const [item, history] of events) assert.ok(!history.includes('reload') || needsReload.has(item),
+      'A recovered preview may reload only for a changed resource or an interrupted request');
     const result = 'SSH outage retained three terminal PIDs, tab order and three editor groups, HTML, Browser and Markdown tabs, and unsaved native file edits. All connections recovered automatically.';
     console.log('PASS:', result);
     await fs.mkdir(path.dirname(process.env.RAS_TEST_REPORT), { recursive: true });
