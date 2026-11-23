@@ -61,6 +61,9 @@ class SessionWorkspace {
     this.treeEmitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.treeEmitter.event;
     this.fileEmitter = new vscode.EventEmitter();
+    this.fileConnection = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 48);
+    this.fileConnection.name = "TmuxDock Remote File Connection";
+    this.fileConnection.command = "remoteAgentSessions.refreshFiles";
     this.actions = new SessionFileActions(this);
     this.view = vscode.window.createTreeView("remoteAgentSessions.files", {
       treeDataProvider: this,
@@ -71,6 +74,9 @@ class SessionWorkspace {
     context.subscriptions.push(
       this,
       this.view,
+      this.fileConnection,
+      vscode.window.tabGroups.onDidChangeTabs(() => this.updateFileConnection()),
+      vscode.window.tabGroups.onDidChangeTabGroups(() => this.updateFileConnection()),
       vscode.workspace.registerFileSystemProvider(SCHEME, this.fileProvider(), {
         isReadonly: false,
         isCaseSensitive: true,
@@ -353,6 +359,7 @@ class SessionWorkspace {
           this.offline = error.message;
           this.updateTitle();
         }
+        this.updateFileConnection({ files, root, disconnected: true });
       });
       files.on("online", (root) => {
         if (
@@ -363,6 +370,7 @@ class SessionWorkspace {
           this.offline = null;
           this.updateTitle();
         }
+        this.updateFileConnection({ files, root });
       });
     }
     files.setRoots(this.fileRoots.roots(controller));
@@ -374,6 +382,37 @@ class SessionWorkspace {
     );
     if (!controller) throw new Error("This SSH host is no longer configured");
     return this.service(controller);
+  }
+  updateFileConnection(event) {
+    if (this.disposed) return;
+    const input = vscode.window.tabGroups.activeTabGroup.activeTab?.input;
+    const resource = input?.uri || input?.modified;
+    const files = resource?.scheme === SCHEME && this.services.get(resource.authority);
+    let root;
+    try { root = files && files.rootFor(resource.path); } catch {}
+    const previous = this.visibleFileOutage;
+    const matches = previous?.files === files && previous?.root === root;
+    if (files && root && files.isOffline(root)) {
+      clearTimeout(this.fileConnectionTimer);
+      this.visibleFileOutage = { files, root };
+      this.fileConnection.text = "$(sync~spin) TmuxDock · Reconnecting";
+      this.fileConnection.tooltip = "Remote files are disconnected. Open tabs stay in place while TmuxDock retries. Click to retry now.";
+      this.fileConnection.show();
+      if (!matches && event?.disconnected && event.files === files && (!event.root || event.root === root))
+        vscode.window.showWarningMessage("TmuxDock · Remote file connection interrupted. Retrying automatically.");
+      return;
+    }
+    if (matches && event?.files === files && event.root === root) {
+      this.visibleFileOutage = null;
+      this.fileConnection.text = "$(check) TmuxDock · Reconnected";
+      this.fileConnection.tooltip = "The remote file connection is available again.";
+      this.fileConnection.show();
+      this.fileConnectionTimer = setTimeout(() => this.fileConnection.hide(), 2500);
+    } else if (!event) {
+      this.visibleFileOutage = null;
+      clearTimeout(this.fileConnectionTimer);
+      this.fileConnection.hide();
+    }
   }
   fileProvider() {
     const self = this;
@@ -1099,6 +1138,7 @@ class SessionWorkspace {
   }
   dispose() {
     this.disposed = true;
+    clearTimeout(this.fileConnectionTimer);
     for (const operation of this.openingFiles.values()) operation.abort.abort();
     for (const key of this.preparedFiles.keys()) this.clearPreparedFile(key);
     for (const abort of this.transferAborts) abort.abort();

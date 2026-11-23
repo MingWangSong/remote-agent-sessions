@@ -71,9 +71,12 @@ class HtmlPreviews {
     panel.webview.onDidReceiveMessage(async (message) => {
       try {
         if (message?.type === "refresh") {
-          this.workspace.service(item.context.controller).retryNow();
-          if (item.server) this.send(item, "reload");
-          else await this.load(item);
+          if (!item.context) return;
+          const files = this.workspace.service(item.context.controller);
+          if (item.server && !item.server.unavailable) this.send(item, "reload");
+          files.retryNow();
+          if (item.server) return;
+          await this.load(item);
         }
         if (message?.type === "browser") await this.openBrowser(item);
       } catch (error) {
@@ -82,7 +85,7 @@ class HtmlPreviews {
     });
     return item;
   }
-  async open(resource, context) {
+  async open(resource, context, browser = false) {
     if (
       !context?.root ||
       resource.authority !== context.controller.host.id ||
@@ -94,7 +97,7 @@ class HtmlPreviews {
       throw new Error("HTML preview requires a trusted workspace");
     const panel = vscode.window.createWebviewPanel(
       "tmuxdock.preview",
-      "Preview · " + path.basename(resource.path),
+      (browser ? "Browser · " : "Preview · ") + path.basename(resource.path),
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: true,
@@ -109,6 +112,7 @@ class HtmlPreviews {
         sessionId: context.entry.id,
         root: context.root,
         file: resource.path,
+        ...(browser ? { browser: true } : {}),
       },
       context,
     );
@@ -123,13 +127,33 @@ class HtmlPreviews {
     this.empty(item, "Loading remote preview…");
     const c = item.context;
     relative(c.root, item.state.file);
+    const files = this.workspace.service(c.controller);
     const server = new PreviewServer(
-      this.workspace.service(c.controller),
+      files,
       c.root,
       { clipboard: true },
     );
+    let reloadAfterReconnect = false;
+    server.unavailable = files.isOffline(c.root);
+    server.on("interrupted", () => { reloadAfterReconnect = true; });
+    server.on("change", () => {
+      clearTimeout(item.timer);
+      item.timer = setTimeout(() => {
+        item.timer = null;
+        if (server.unavailable) reloadAfterReconnect = true;
+        else this.send(item, "reload");
+      }, 300);
+    });
+    server.on("offline", () => this.send(item, "offline"));
+    server.on("online", () => {
+      this.send(item, "online");
+      if (reloadAfterReconnect) {
+        reloadAfterReconnect = false;
+        this.send(item, "reload");
+      }
+    });
     try {
-      await server.start();
+      await server.start(item.state.file);
     } catch (error) {
       server.dispose();
       if (!item.closed) this.empty(item, error.message);
@@ -142,13 +166,48 @@ class HtmlPreviews {
     item.server = server;
     item.url = server.url(item.state.file);
     const nonce = item.token;
-    item.panel.webview.html = `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; frame-src ${server.origin};"><style>html,body{margin:0;height:100%;overflow:hidden;background:var(--vscode-editor-background);color:var(--vscode-foreground);font:var(--vscode-font-size,12px) var(--vscode-font-family,sans-serif)}header{height:34px;display:flex;align-items:center;gap:10px;padding:0 12px}span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}button{font:inherit;color:inherit;background:transparent;border:1px solid var(--vscode-widget-border,transparent);border-radius:3px;padding:3px 7px;cursor:pointer}button:hover{background:var(--vscode-toolbar-hoverBackground)}iframe{width:100%;height:calc(100% - 34px);border:0}</style></head><body><header><span title="${escape(item.state.file)}">${escape(c.controller.host.label)} · ${escape(c.record?.title || c.entry.title)} · ${escape(item.state.file)}</span><small id="state">Live</small><button id="refresh" title="Reload this preview">Refresh</button><button id="browser" title="Open in VS Code browser">Browser</button></header><iframe id="page" sandbox="allow-scripts allow-same-origin allow-forms" referrerpolicy="no-referrer" src="${escape(item.url)}"></iframe><script nonce="${nonce}">(${installPreviewCopy.toString()})(${JSON.stringify(server.origin)});const api=acquireVsCodeApi();api.setState(${JSON.stringify(item.state).replace(/</g, "\\u003c")});for(const id of ['refresh','browser'])document.getElementById(id).onclick=()=>api.postMessage({type:id});document.getElementById('page').onload=()=>document.getElementById('state').textContent='Live';window.addEventListener('message',e=>{const m=e.data;if(m?.token!==${JSON.stringify(nonce)})return;if(m.type==='reload'){const f=document.getElementById('page');document.getElementById('state').textContent='Updating';f.src=f.src;}if(m.type==='offline')document.getElementById('state').textContent='Offline';});</script></body></html>`;
-    server.on("change", () => {
-      clearTimeout(item.timer);
-      item.timer = setTimeout(() => this.send(item, "reload"), 300);
-    });
-    server.on("offline", () => this.send(item, "offline"));
-    server.on("online", () => this.send(item, "reload"));
+    item.panel.webview.html = `<!doctype html><html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; frame-src ${server.origin};">
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:var(--vscode-editor-background);color:var(--vscode-foreground);font:var(--vscode-font-size,12px) var(--vscode-font-family,sans-serif)}
+header{height:34px;display:flex;align-items:center;gap:10px;padding:0 12px}
+span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button{font:inherit;color:inherit;background:transparent;border:1px solid var(--vscode-widget-border,transparent);border-radius:3px;padding:3px 7px;cursor:pointer}
+button:hover{background:var(--vscode-toolbar-hoverBackground)}
+iframe{width:100%;height:calc(100% - 34px);border:0}
+#connection{position:absolute;top:44px;right:12px;max-width:calc(100% - 48px);padding:8px 12px;border:1px solid var(--vscode-notifications-border);border-radius:4px;background:var(--vscode-notifications-background);color:var(--vscode-notifications-foreground);box-shadow:0 2px 8px var(--vscode-widget-shadow);pointer-events:none}
+#connection[data-state="offline"]{border-color:var(--vscode-notificationsWarningIcon-foreground)}
+</style></head><body>
+<header><span title="${escape(item.state.file)}">${escape(c.controller.host.label)} · ${escape(c.record?.title || c.entry.title)} · ${escape(item.state.file)}</span>
+<button id="refresh" title="Reload this preview or retry its connection">Refresh</button>
+${item.state.browser ? "" : '<button id="browser" title="Open an independent browser tab">Browser</button>'}</header>
+<iframe id="page" sandbox="allow-scripts allow-same-origin allow-forms" referrerpolicy="no-referrer" src="${escape(item.url)}"></iframe>
+<div id="connection" role="status" aria-live="polite" ${server.unavailable ? 'data-state="offline"' : 'hidden'}>${server.unavailable ? "Disconnected · reconnecting automatically" : ""}</div>
+<script nonce="${nonce}">
+(${installPreviewCopy.toString()})(${JSON.stringify(server.origin)});
+const api=acquireVsCodeApi();
+api.setState(${JSON.stringify(item.state).replace(/</g, "\\u003c")});
+for(const id of ['refresh','browser']) {
+  const button=document.getElementById(id);
+  if(button) button.onclick=()=>api.postMessage({type:id});
+}
+const status=document.getElementById('connection');
+let timer;
+window.addEventListener('message',e=>{
+  const m=e.data;
+  if(m?.token!==${JSON.stringify(nonce)})return;
+  if(m.type==='reload'){
+    const frame=document.getElementById('page');
+    frame.src=frame.src;
+  } else if (m.type==='online'||m.type==='offline') {
+    clearTimeout(timer);
+    status.dataset.state=m.type;
+    status.textContent=m.type==='offline'?'Disconnected · reconnecting automatically':'Reconnected';
+    status.hidden=false;
+    if(m.type==='online')timer=setTimeout(()=>{status.hidden=true;},2500);
+  }
+});
+</script></body></html>`;
   }
   send(item, type) {
     if (!item.closed)
@@ -161,12 +220,14 @@ class HtmlPreviews {
   }
   stop(item) {
     clearTimeout(item.timer);
+    item.timer = null;
     item.server?.dispose();
     item.server = null;
     item.url = null;
   }
   refresh() {
-    for (const item of this.items) if (item.server) this.send(item, "reload");
+    for (const item of this.items)
+      if (item.server && !item.server.unavailable) this.send(item, "reload");
   }
   suspend() {
     for (const item of this.items) {
@@ -193,7 +254,7 @@ class HtmlPreviews {
         (item.state.file === source || item.state.file.startsWith(source + "/"))
       ) {
         item.state.file = destination + item.state.file.slice(source.length);
-        item.panel.title = "Preview · " + path.basename(item.state.file);
+        item.panel.title = (item.state.browser ? "Browser · " : "Preview · ") + path.basename(item.state.file);
         try {
           await this.load(item);
         } catch (error) {
@@ -203,15 +264,10 @@ class HtmlPreviews {
     }
   }
   async openBrowser(item = this.active) {
-    if (item?.url)
-      await vscode.commands.executeCommand(
-        "simpleBrowser.api.open",
-        vscode.Uri.parse(item.url),
-        {
-          viewColumn: vscode.ViewColumn.Active,
-          preserveFocus: false,
-        },
-      );
+    if (item?.url && item.context)
+      return this.open(vscode.Uri.from({
+        scheme: "tmuxdock-remote", authority: item.state.hostId, path: item.state.file,
+      }), item.context, true);
   }
   dispose() {
     for (const item of [...this.items]) item.panel.dispose();

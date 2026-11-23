@@ -230,6 +230,7 @@ class RemoteFiles extends EventEmitter {
     this.roots = new Set();
     this.watches = new Map();
     this.retries = new Map();
+    this.offlineRoots = new Set();
     this.connectionFailures = 0;
     this.connectionRetryAt = 0;
     this.interval = interval;
@@ -239,8 +240,12 @@ class RemoteFiles extends EventEmitter {
     this.channel.on("offline", (error) => {
       this.connectionRetryAt =
         Date.now() + this.retryDelay(++this.connectionFailures);
+      for (const { root } of this.watches.values()) this.offlineRoots.add(root);
       this.emit("offline", error);
     });
+  }
+  isOffline(root) {
+    return this.offlineRoots.has(root) || Date.now() < this.connectionRetryAt;
   }
   retryDelay(failures) {
     return Math.min(30000, 2000 * 2 ** Math.min(failures - 1, 4));
@@ -259,6 +264,8 @@ class RemoteFiles extends EventEmitter {
     this.roots = new Set([...roots].map((root) => path.resolve(root)));
     for (const root of this.retries.keys())
       if (!this.roots.has(root)) this.retries.delete(root);
+    for (const root of this.offlineRoots)
+      if (!this.roots.has(root)) this.offlineRoots.delete(root);
     for (const [key, w] of this.watches)
       if (!this.roots.has(w.root)) this.watches.delete(key);
     if (!this.watches.size) {
@@ -550,6 +557,7 @@ class RemoteFiles extends EventEmitter {
           this.retries.delete(root);
           this.connectionFailures = 0;
           this.connectionRetryAt = 0;
+          this.offlineRoots.delete(root);
           this.emit("online", root);
         } catch (error) {
           const failures = (this.retries.get(root)?.failures || 0) + 1;
@@ -557,6 +565,7 @@ class RemoteFiles extends EventEmitter {
             failures,
             at: Date.now() + this.retryDelay(failures),
           });
+          this.offlineRoots.add(root);
           this.emit("offline", error, root);
           if (Date.now() < this.connectionRetryAt) break;
         }

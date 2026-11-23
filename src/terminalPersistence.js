@@ -94,7 +94,7 @@ function restoredTerminalContext(terminal, controllers) {
   }
 }
 
-function guardedAttachScript(tmux, live) {
+function guardedAttachScript(tmux, live, reconnected = false) {
   const created = Date.parse(live.created) / 1000;
   if (!/^\$\d+$/.test(live.id) || !Number.isInteger(created)) throw new Error('Cannot persist a terminal without a verified tmux identity');
   const command = args => remoteCommand(tmux.executable, ['-u', ...tmux.prefixArgs, ...args]);
@@ -103,9 +103,11 @@ function guardedAttachScript(tmux, live) {
   // original server identity before attach, rather than trusting a reused $ID.
   // tmux 3.2a can terminate its server when display-message targets a vanished
   // session. Enumerate identities without resolving a possibly stale target.
-  return `identities=$(${command(['list-sessions', '-F', '#{session_id}|#{session_created}|#{@ras_id}'])}) || exit $?; ` +
+  const attach = ['attach-session', '-t', live.id];
+  if (reconnected) attach.push(';', 'display-message', '-d', '2500', 'TmuxDock · Reconnected');
+  return `identities=$(${command(['list-sessions', '-F', '#{session_id}|#{session_created}|#{@ras_id}'])}) || exit 1; ` +
     `printf '%s\\n' "$identities" | grep -F -x -- ${shellQuote(identity)} >/dev/null || { printf '%s\\n' 'TmuxDock: original session is unavailable or its identity changed. Refresh and reconnect from the sidebar.' >&2; exit 1; }; ` +
-    `exec ${command(['attach-session', '-t', live.id])}`;
+    `exec ${command(attach)}`;
 }
 
 module.exports = { TERMINAL_CONTEXT, TerminalConnections, terminalMetadata, restoredTerminalContext, guardedAttachScript };

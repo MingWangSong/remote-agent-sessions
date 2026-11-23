@@ -8,7 +8,7 @@ const { HostRegistry } = require('./hostRegistry');
 const { basenameForTitle } = require('./model');
 const { GitInspector, SessionManager, checkTmuxName, owns } = require('./sessionManager');
 const { SessionStore, validateRecords } = require('./store');
-const { SshClient } = require('./ssh');
+const { SshClient, remoteCommand } = require('./ssh');
 const { TmuxClient } = require('./tmux');
 const { SessionOrder, sessionKey } = require('./sessionOrder');
 const { Operations } = require('./operations');
@@ -16,6 +16,7 @@ const { sessionType, TYPE_ICONS, TYPE_LABELS } = require('./sessionType');
 const { terminalTitle, bannerText } = require('./terminalTitle');
 const { AgentSessions, builtinAgent, needsAgentBinding, UUID } = require('./agentSessions');
 const { TERMINAL_CONTEXT, TerminalConnections, terminalMetadata, guardedAttachScript } = require('./terminalPersistence');
+const { reconnectingTerminal } = require('./reconnectingTerminal');
 const { chooseCodexConversation } = require('./conversationPicker');
 const { SessionWorkspace } = require('./sessionWorkspace');
 
@@ -517,8 +518,7 @@ async function activate(context) {
     if (!controller) return;
     vscode.window.createTerminal({
       name: `SSH: ${controller.host.label}`,
-      shellPath: controller.ssh.sshPath,
-      shellArgs: [...controller.ssh.baseArgs({ interactive: true }), '-tt', controller.host.sshHost],
+      ...reconnectingTerminal(controller.ssh),
       isTransient: true
     }).show();
   });
@@ -1009,14 +1009,19 @@ async function attachEntry(controller, entry) {
   }
   const attachScript = guardedAttachScript(controller.tmux, live);
   const sameRemote = currentRemoteHost() === controller.host.sshHost;
+  const launch = sameRemote
+    ? { shellPath: 'sh', shellArgs: ['-c', attachScript] }
+    : reconnectingTerminal(controller.ssh, {
+      remote: remoteCommand('sh', ['-c', attachScript]),
+      reconnect: remoteCommand('sh', ['-c', guardedAttachScript(controller.tmux, live, true)])
+    });
   const location = controller.configuration.get('sessionTerminalLocation', 'editor') === 'panel'
     ? vscode.TerminalLocation.Panel
     : { viewColumn: vscode.ViewColumn.Active, preserveFocus: false };
   const terminal = vscode.window.createTerminal({
     name: terminalTitle(entry.title, new Set(vscode.window.terminals.map(terminal => terminal.name))),
     iconPath: terminalIconPath(entry),
-    shellPath: sameRemote ? 'sh' : controller.ssh.sshPath,
-    shellArgs: sameRemote ? ['-c', attachScript] : controller.ssh.terminalArgs('sh', ['-c', attachScript]),
+    ...launch,
     env: { TMUX: null, [TERMINAL_CONTEXT]: terminalMetadata(controller.host, entry, live) },
     location,
     isTransient: false,

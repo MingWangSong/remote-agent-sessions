@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.3.8 — 2026-11-24
+
+- Keep native tmux and SSH terminals in the same editor group during network outages. Retry automatically with backoff and show connection status in the terminal. Reattach only to the original tmux session.
+- Stagger reconnect attempts across tabs and reuse the host's SSH connection. Discard input typed while offline; never rebuild a stopped session or restart its Agent automatically.
+- Keep HTML and Browser tabs in place, with an in-page connection notice and a reload only when resources changed or a request was interrupted. Native remote files and Markdown previews show connection status in VS Code and resume watching once online.
+
 ## 3.3.7 — 2026-11-11
 
 - Fix false remote-file timeouts on slow links: the serial helper's head response uses an inactivity timeout refreshed by arriving bytes; queued requests receive their timeout when preceding responses finish. Keep the existing four-request window and timeout for silent connections.

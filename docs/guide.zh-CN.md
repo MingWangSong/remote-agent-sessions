@@ -133,6 +133,9 @@ macOS/Linux 默认使用 OpenSSH ControlMaster 复用两分钟连接，减少一
 
 ## 断线与恢复
 
+- 本地 VS Code 的 TmuxDock 终端会保留原标签、顺序和分屏布局，在页内显示断线与重试。SSH 超时后从 2–4 秒开始重试，最长间隔 17 秒；多标签错开重试并复用 SSH 连接。重连会校验并附着到原 tmux，Plain SSH Terminal 则建立新的登录 shell。断线期间的输入会丢弃，避免恢复后意外执行。
+- HTML 和 Browser 标签会显示断线浮层，并保留已加载的页面。资源发生变化或加载被中断时，恢复连接后会重新加载。原生文件和 Markdown 预览显示 VS Code 状态提示，恢复后继续监测远端修改。
+- 升级前已打开的终端仍在运行旧连接。安装后从侧栏重新打开一次会话来启用自动重连。由 Remote - SSH 打开的整个工作区窗口使用 VS Code 自带的重连机制。
 - 关闭本地终端、VS Code 或电脑：远端服务器仍运行时，tmux 和 Agent CLI 继续工作。
 - tmux server 消失或服务器重启：本地记录显示 **rebuild available**；恢复前可检查保存的命令，选择运行命令或只重建 shell。
 - 工作区重建不恢复进程内存。新建的已绑定 Claude/Codex 对话会自动使用官方 resume 接口；旧记录须先绑定原对话 ID。

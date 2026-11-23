@@ -15,7 +15,7 @@ const run = promisify(execFile);
   const root = path.resolve(__dirname, '..');
   const manifest = require(path.join(root, 'package.json'));
   const extensionId = process.env.RAS_TEST_EXTENSION_ID || `${manifest.publisher}.${manifest.name}`;
-  const temp = await fs.mkdtemp(path.join(os.tmpdir(), 'ras-vscode-'));
+  const temp = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'ras-vscode-')));
   const socket = 'ras-vscode-' + randomUUID();
   const tmux = process.env.RAS_TMUX || (await run('which', ['tmux'])).stdout.trim();
   let executable = process.env.VSCODE_EXECUTABLE_PATH || (process.platform === 'darwin'
@@ -28,10 +28,23 @@ const run = promisify(execFile);
   await fs.writeFile(fakeSsh, `#!/bin/sh
 set -eu
 while [ "\${1:-}" = "-o" ]; do shift 2; done
-if [ "\${1:-}" = "-tt" ]; then shift; fi
+interactive=
+if [ "\${1:-}" = "-tt" ]; then interactive=1; shift; fi
 test "$#" -ge 1
 shift
+offline="$(dirname "$0")/ssh-offline"
+if [ -f "$offline" ]; then
+  if [ -n "$interactive" ]; then touch "$offline-retry"; fi
+  printf '%s\\n' 'Test SSH connection interrupted' >&2
+  exit 255
+fi
 if [ "$#" -eq 0 ]; then exec sh; fi
+if [ -n "$interactive" ] && [ -f "$(dirname "$0")/ssh-outage-test" ]; then
+  status=0
+  sh -c "$1" || status=$?
+  if [ -f "$offline" ]; then exit 255; fi
+  exit "$status"
+fi
 exec sh -c "$1"
 `);
   await fs.chmod(fakeSsh, 0o700);
@@ -55,10 +68,10 @@ exec sh -c "$1"
     }
     const testsEnv = { RAS_TEST_DIRECTORY: temp, RAS_TEST_SOCKET: socket,
       RAS_TEST_EXTENSION_ID: extensionId,
-      RAS_TEST_REPORT: path.resolve(root,'test-results',process.env.RAS_TEST_FULL_RESTART ? 'restart-icon-results.json' : process.env.RAS_TEST_ICONS ? 'icon-results.json' : process.env.RAS_TEST_WORKSPACE_RELOAD ? 'workspace-reload-results.json' : process.env.RAS_TEST_RELOAD ? 'reload-results.json' : process.env.RAS_TEST_VSIX ? 'vsix-results.json' : 'vscode-results.json') };
+      RAS_TEST_REPORT: path.resolve(root,'test-results',process.env.RAS_TEST_RECONNECTION ? 'reconnection-results.json' : process.env.RAS_TEST_FULL_RESTART ? 'restart-icon-results.json' : process.env.RAS_TEST_ICONS ? 'icon-results.json' : process.env.RAS_TEST_WORKSPACE_RELOAD ? 'workspace-reload-results.json' : process.env.RAS_TEST_RELOAD ? 'reload-results.json' : process.env.RAS_TEST_VSIX ? 'vsix-results.json' : 'vscode-results.json') };
     const launchArgs = [path.join(temp,'project'),'--user-data-dir',userData,'--extensions-dir',path.join(temp,'extensions'),
       '--disable-extensions','--disable-workspace-trust','--skip-welcome','--skip-release-notes'];
-    if (!process.env.RAS_TEST_RELOAD && !process.env.RAS_TEST_ICONS && !process.env.RAS_TEST_WORKSPACE_RELOAD) {
+    if (!process.env.RAS_TEST_RECONNECTION && !process.env.RAS_TEST_RELOAD && !process.env.RAS_TEST_ICONS && !process.env.RAS_TEST_WORKSPACE_RELOAD) {
       const port = await new Promise(resolve => {
         const server = net.createServer();
         server.listen(0, '127.0.0.1', () => { const port = server.address().port; server.close(() => resolve(port)); });
@@ -108,7 +121,7 @@ exports.activate = async () => {
       console.log(await fs.readFile(testsEnv.RAS_TEST_REPORT, 'utf8'));
     } else await runTests({
       vscodeExecutablePath: executable, extensionDevelopmentPath: developmentPath,
-      extensionTestsPath: path.join(root,'integration','vscode','index.js'),
+      extensionTestsPath: path.join(root,'integration','vscode',process.env.RAS_TEST_RECONNECTION ? 'reconnection.js' : 'index.js'),
       extensionTestsEnv: testsEnv,
       launchArgs,
       timeout: 120000

@@ -59,10 +59,15 @@ class PreviewServer extends EventEmitter {
     this.clipboard = clipboard;
     this.host = randomBytes(20).toString("hex") + ".localhost";
     this.subscriptions = new Map();
+    this.rendered = new Map();
     this.sockets = new Set();
     this.closed = false;
-    this.changed = (file) => {
-      if (this.subscriptions.has(file)) this.emit("change", file);
+    this.changed = (file, change) => {
+      if (!this.subscriptions.has(file)) return;
+      // The first watch snapshot can arrive after the page has loaded. Reload
+      // only when it differs from the resource already delivered to the page.
+      if (change?.signature && change.signature === this.rendered.get(file)) return;
+      this.emit("change", file);
     };
     this.offline = (error, root) => {
       if (!root || root === this.root) {
@@ -80,10 +85,13 @@ class PreviewServer extends EventEmitter {
     files.on("offline", this.offline);
     files.on("online", this.online);
   }
-  async start() {
-    await this.files.stat(this.root, this.root);
+  async start(file) {
+    if (file) this.subscriptions.set(file, this.files.watch(file, this.root));
+    else await this.files.stat(this.root, this.root);
     this.server = http.createServer((req, res) =>
       this.serve(req, res).catch((error) => {
+        if (this.unavailable || this.files.isOffline?.(this.root) || error.code === "RemoteFileTimeout")
+          this.emit("interrupted");
         if (res.headersSent) {
           res.destroy();
           return;
@@ -205,6 +213,7 @@ class PreviewServer extends EventEmitter {
       return;
     }
     if (firstChunk && info.size === 0) {
+      this.rendered.set(file, info.signature);
       res.end(firstChunk);
       return;
     }
@@ -237,6 +246,7 @@ class PreviewServer extends EventEmitter {
           }
         });
     }
+    if (!res.destroyed) this.rendered.set(file, info.signature);
     res.end();
   }
   dispose() {
@@ -247,6 +257,7 @@ class PreviewServer extends EventEmitter {
     this.files.off("online", this.online);
     for (const s of this.subscriptions.values()) s.dispose();
     this.subscriptions.clear();
+    this.rendered.clear();
     this.server?.close();
     for (const s of this.sockets) s.destroy();
     this.removeAllListeners();
