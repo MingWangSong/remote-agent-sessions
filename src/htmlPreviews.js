@@ -19,6 +19,7 @@ class HtmlPreviews {
   constructor(workspace) {
     this.workspace = workspace;
     this.items = new Set();
+    this.opening = Promise.resolve();
     workspace.context.subscriptions.push(
       vscode.window.registerWebviewPanelSerializer("tmuxdock.preview", {
         deserializeWebviewPanel: async (panel, state) => {
@@ -44,18 +45,23 @@ class HtmlPreviews {
     );
   }
   attach(panel, state, context) {
+    let resolveStateReady;
+    const stateReady = new Promise(resolve => { resolveStateReady = resolve; });
     const item = {
       panel,
       state,
       context,
       token: randomBytes(16).toString("hex"),
       closed: false,
+      stateReady,
+      resolveStateReady,
     };
     panel.webview.options = { enableScripts: true, localResourceRoots: [] };
     this.items.add(item);
     this.active = item;
     panel.onDidDispose(() => {
       item.closed = true;
+      item.resolveStateReady(false);
       this.stop(item);
       this.items.delete(item);
       if (this.active === item)
@@ -70,6 +76,10 @@ class HtmlPreviews {
     });
     panel.webview.onDidReceiveMessage(async (message) => {
       try {
+        if (message?.type === "ready" && message.token === item.token) {
+          item.resolveStateReady(true);
+          return;
+        }
         if (message?.type === "refresh") {
           if (!item.context) return;
           const files = this.workspace.service(item.context.controller);
@@ -85,7 +95,16 @@ class HtmlPreviews {
     });
     return item;
   }
-  async open(resource, context, browser = false) {
+  open(resource, context, browser = false) {
+    // A newly hidden webview may not execute its initial setState script.
+    // Confirm that the renderer saved its identity before creating the next
+    // preview, so rapid opens and Reload Window retain every independent tab.
+    const pending = this.opening.then(() => this.create(resource, context, browser));
+    this.opening = pending.catch(() => {});
+    return pending;
+  }
+  async create(resource, context, browser = false) {
+    if (this.disposed) throw new Error("HTML previews are closed");
     if (
       !context?.root ||
       resource.authority !== context.controller.host.id ||
@@ -117,6 +136,13 @@ class HtmlPreviews {
       context,
     );
     await this.load(item);
+    let timer;
+    try {
+      await Promise.race([item.stateReady, new Promise(resolve => {
+        timer = setTimeout(resolve, 3000);
+        timer.unref?.();
+      })]);
+    } finally { clearTimeout(timer); }
     return item;
   }
   async load(item) {
@@ -187,6 +213,7 @@ ${item.state.browser ? "" : '<button id="browser" title="Open an independent bro
 (${installPreviewCopy.toString()})(${JSON.stringify(server.origin)});
 const api=acquireVsCodeApi();
 api.setState(${JSON.stringify(item.state).replace(/</g, "\\u003c")});
+api.postMessage({type:'ready',token:${JSON.stringify(nonce)}});
 for(const id of ['refresh','browser']) {
   const button=document.getElementById(id);
   if(button) button.onclick=()=>api.postMessage({type:id});
@@ -216,7 +243,7 @@ window.addEventListener('message',e=>{
   empty(item, message) {
     if (item.closed) return;
     const nonce = item.token;
-    item.panel.webview.html = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"></head><body style="font:14px sans-serif;color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:24px">${escape(message)}<script nonce="${nonce}">acquireVsCodeApi().setState(${JSON.stringify(item.state || null).replace(/</g, "\\u003c")})</script></body></html>`;
+    item.panel.webview.html = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';"></head><body style="font:14px sans-serif;color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:24px">${escape(message)}<script nonce="${nonce}">const api=acquireVsCodeApi();api.setState(${JSON.stringify(item.state || null).replace(/</g, "\\u003c")});api.postMessage({type:'ready',token:${JSON.stringify(nonce)}});</script></body></html>`;
   }
   stop(item) {
     clearTimeout(item.timer);
@@ -270,6 +297,7 @@ window.addEventListener('message',e=>{
       }), item.context, true);
   }
   dispose() {
+    this.disposed = true;
     for (const item of [...this.items]) item.panel.dispose();
   }
 }

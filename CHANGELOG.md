@@ -4,6 +4,7 @@
 
 - Keep native tmux and SSH terminals in the same editor group during network outages. Retry automatically with backoff and show connection status in the terminal. Reattach only to the original tmux session.
 - Stagger reconnect attempts across tabs and reuse the host's SSH connection. Discard input typed while offline; never rebuild a stopped session or restart its Agent automatically.
+- Confirm preview recovery state in the renderer before opening another preview, so rapid opens followed by Reload Window retain each tab's directory and file identity.
 - Keep HTML and Browser tabs in place, with an in-page connection notice and a reload only when resources changed or a request was interrupted. Native remote files and Markdown previews show connection status in VS Code and resume watching once online.
 
 ## 3.3.7 — 2026-11-11
