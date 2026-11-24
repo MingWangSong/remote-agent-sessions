@@ -137,7 +137,7 @@ class SessionWorkspace {
           (...args) =>
             Promise.resolve()
               .then(() =>
-                ["previewHtml", "linkDirectory"].includes(id)
+                ["previewHtml", "openPreviewBrowser", "linkDirectory"].includes(id)
                   ? vscode.window.withProgress(
                       {
                         location: vscode.ProgressLocation.Notification,
@@ -145,6 +145,8 @@ class SessionWorkspace {
                           "TmuxDock · " +
                           (id === "previewHtml"
                             ? "Loading HTML preview"
+                            : id === "openPreviewBrowser"
+                            ? "Opening in default browser"
                             : "Link working directory"),
                       },
                       () => fn(...args),
@@ -220,7 +222,9 @@ class SessionWorkspace {
     });
     register("uploadFiles", (item) => this.uploadFiles(item));
     register("downloadFile", (item) => this.downloadFile(item));
-    register("openPreviewBrowser", () => this.previews.openBrowser());
+    register("openPreviewBrowser", (item) => item?.uri
+      ? this.previews.openResourceInBrowser(item.uri, item.context || this.current)
+      : this.previews.openBrowser());
     this.reconcileTimer = setInterval(() => this.reconcile(), 2500);
     this.reconcileTimer.unref?.();
     this.setEnabled();

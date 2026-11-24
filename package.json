@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Remote tmux, Codex and Claude in one VS Code workspace. Native files, live HTML and Markdown previews, SFTP and recovery.",
-  "version": "3.3.9",
+  "version": "3.3.10",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -245,7 +245,7 @@
       },
       {
         "command": "remoteAgentSessions.openPreviewBrowser",
-        "title": "Open Preview in Default Browser",
+        "title": "Open in Browser",
         "category": "TmuxDock",
         "icon": "$(globe)"
       },
@@ -454,6 +454,11 @@
           "command": "remoteAgentSessions.previewHtml",
           "when": "view == remoteAgentSessions.files && viewItem =~ /^remoteHtml$/",
           "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.openPreviewBrowser",
+          "when": "view == remoteAgentSessions.files && viewItem =~ /^remoteHtml$/",
+          "group": "navigation@2"
         },
         {
           "command": "remoteAgentSessions.previewMarkdown",

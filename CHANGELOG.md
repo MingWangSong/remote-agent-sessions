@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.3.10 — 2026-11-24
+
+- Add Open in Browser to HTML files in the Session Files context menu. Open the selected file directly in the system default browser without an intermediate editor tab; reuse existing preview endpoints where possible.
+
 ## 3.3.9 — 2026-11-24
 
 - Make HTML's Browser button and Open Preview in Default Browser command launch the system default browser. Keep relative remote resources available after the VS Code preview tab closes; release local servers when the directory is unlinked, Session Files is disabled or the extension stops.

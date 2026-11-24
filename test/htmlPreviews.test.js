@@ -41,12 +41,18 @@ function fixture() {
     name => name === 'vscode' ? vscode : name.startsWith('./') ? require('../src/' + name.slice(2)) : require(name), module, module.exports,
   );
   const context = { root: '/work', controller: { host: { id: 'host' } }, entry: { id: 'session' } };
+  const remoteFiles = new EventEmitter();
+  remoteFiles.watch = () => ({ dispose() {} });
+  remoteFiles.chunk = async (file, offset, limit) => {
+    const data = Buffer.from('selected:' + file);
+    return { type: 'file', size: data.length, signature: file, data: data.subarray(offset, offset + limit) };
+  };
   const workspace = { context: { subscriptions: [] }, provider: { controllers: [context.controller] },
-    fileRoots: { find: () => context } };
+    fileRoots: { find: () => context }, service: () => remoteFiles };
   const previews = new module.exports.HtmlPreviews(workspace);
   previews.load = async item => previews.empty(item, 'Loading remote preview');
   const open = name => previews.open({ authority: 'host', path: '/work/' + name }, context);
-  return { previews, panels, open, external, vscode, workspace };
+  return { previews, panels, open, external, vscode, workspace, context };
 }
 
 async function loaded(f, name = '资料 #1.html') {
@@ -141,4 +147,38 @@ test('closing a preview while the system opener is pending does not leak a faile
   assert.equal(f.previews.externalServers.size, 0);
   assert.equal(server.disposed, true);
   f.previews.dispose();
+});
+
+test('a tree selection opens its own live HTTP endpoint without creating or choosing another editor tab', async t => {
+  const f = fixture();
+  t.after(() => f.previews.dispose());
+  await loaded(f, 'other-active.html');
+  const selected = { authority: 'host', path: '/work/selected #1.html' };
+  await f.previews.openResourceInBrowser(selected, f.context);
+  assert.equal(f.panels.length, 1, 'only the pre-existing unrelated tab remains');
+  const target = new URL(f.external.at(-1));
+  assert.equal(decodeURIComponent(target.pathname), '/selected #1.html');
+  const body = await new Promise((resolve, reject) => {
+    require('node:http').get({ hostname: '127.0.0.1', port: target.port, path: target.pathname, headers: { Host: target.host } }, res => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString()));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+  assert.equal(body, 'selected:/work/selected #1.html');
+  await f.previews.openResourceInBrowser(selected, f.context);
+  assert.equal(f.external.at(-1), target.toString(), 'repeat clicks reuse the endpoint');
+  assert.equal(f.previews.externalServers.size, 1);
+});
+
+test('tree browser requests reject wrong hosts, non-HTML files and paths outside the linked root before launching', async t => {
+  const f = fixture();
+  t.after(() => f.previews.dispose());
+  for (const resource of [{ authority: 'other-host', path: '/work/report.html' },
+    { authority: 'host', path: '/work/report.md' }, { authority: 'host', path: '/outside/report.html' }])
+    await assert.rejects(f.previews.openResourceInBrowser(resource, f.context));
+  assert.equal(f.external.length, 0);
+  assert.equal(f.panels.length, 0);
+  assert.equal(f.previews.externalServers.size, 0);
 });

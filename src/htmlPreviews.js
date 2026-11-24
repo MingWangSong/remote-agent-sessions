@@ -14,6 +14,14 @@ const escape = (value) =>
       ],
   );
 
+function validateResource(resource, context) {
+  if (!context?.root || !resource || resource.authority !== context.controller.host.id || !/\.html?$/i.test(resource.path))
+    throw new Error("Select an HTML file in a linked session directory");
+  relative(context.root, resource.path);
+  if (!vscode.workspace.isTrusted)
+    throw new Error("HTML preview requires a trusted workspace");
+}
+
 // Each tab owns its page and HTTP origin. SSH reads/watches remain shared by host.
 class HtmlPreviews {
   constructor(workspace) {
@@ -106,15 +114,7 @@ class HtmlPreviews {
   }
   async create(resource, context, browser = false) {
     if (this.disposed) throw new Error("HTML previews are closed");
-    if (
-      !context?.root ||
-      resource.authority !== context.controller.host.id ||
-      !/\.html?$/i.test(resource.path)
-    )
-      throw new Error("Select an HTML file in a linked session directory");
-    relative(context.root, resource.path);
-    if (!vscode.workspace.isTrusted)
-      throw new Error("HTML preview requires a trusted workspace");
+    validateResource(resource, context);
     const panel = vscode.window.createWebviewPanel(
       "tmuxdock.preview",
       (browser ? "Browser · " : "Preview · ") + path.basename(resource.path),
@@ -299,6 +299,28 @@ window.addEventListener('message',e=>{
           this.empty(item, error.message);
         }
       }
+    }
+  }
+  async openResourceInBrowser(resource, context) {
+    if (this.disposed) throw new Error("HTML previews are closed");
+    validateResource(resource, context);
+    const matches = state => state?.hostId === resource.authority && state.sessionId === context.entry.id &&
+      state.root === context.root && state.file === resource.path;
+    const preview = [...this.items].find(item => !item.closed && item.server && matches(item.state));
+    if (preview) return this.openBrowser(preview);
+    for (const [server, state] of this.externalServers)
+      if (!server.closed && matches(state)) return this.openBrowser({ server, state, context });
+    const server = new PreviewServer(this.workspace.service(context.controller), context.root);
+    const state = { hostId: resource.authority, sessionId: context.entry.id, root: context.root, file: resource.path };
+    try {
+      await server.start(resource.path);
+      if (this.disposed || this.workspace.disposed || this.workspace.enabled === false)
+        throw new Error("Session Files is closed");
+      return await this.openBrowser({ server, state, context });
+    } catch (error) {
+      this.externalServers.delete(server);
+      server.dispose();
+      throw error;
     }
   }
   async openBrowser(item = this.active) {

@@ -73,6 +73,27 @@ exports.run = async (api, controller, check) => {
     },
   );
   await check(
+    "Session files: HTML context menu opens the clicked resource in the default browser without an editor tab",
+    async () => {
+      const item = (await files.getChildren(files.rootItem())).find(node => node.name === "index.html");
+      assert.equal(files.getTreeItem(item).contextValue, "remoteHtml");
+      const manifest = vscode.extensions.getExtension(process.env.RAS_TEST_EXTENSION_ID).packageJSON;
+      assert.ok(manifest.contributes.menus["view/item/context"].some(menu =>
+        menu.command === "remoteAgentSessions.openPreviewBrowser" &&
+        menu.when === "view == remoteAgentSessions.files && viewItem =~ /^remoteHtml$/"));
+      const before = vscode.window.tabGroups.all.map(group => group.tabs.length);
+      const open = files.previews.openResourceInBrowser;
+      let selected;
+      files.previews.openResourceInBrowser = async (uri, context) => { selected = { uri, context }; };
+      try {
+        await vscode.commands.executeCommand("remoteAgentSessions.openPreviewBrowser", item);
+        assert.equal(selected.uri.toString(), item.uri.toString());
+        assert.equal(selected.context, item.context);
+        assert.deepEqual(vscode.window.tabGroups.all.map(group => group.tabs.length), before);
+      } finally { files.previews.openResourceInBrowser = open; }
+    },
+  );
+  await check(
     "Session files: compact header and absolute/relative Copy Path use the selected node without SSH",
     async () => {
       assert.equal(files.view.message, undefined);
