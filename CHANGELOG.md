@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.3.9 — 2026-11-24
+
+- Make HTML's Browser button and Open Preview in Default Browser command launch the system default browser. Keep relative remote resources available after the VS Code preview tab closes; release local servers when the directory is unlinked, Session Files is disabled or the extension stops.
+- Keep existing 3.3.8 Browser tabs restorable, with the default-browser button available in those tabs too.
+
 ## 3.3.8 — 2026-11-24
 
 - Keep native tmux and SSH terminals in the same editor group during network outages. Retry automatically with backoff and show connection status in the terminal. Reattach only to the original tmux session.

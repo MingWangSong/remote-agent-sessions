@@ -63,9 +63,11 @@ Native Save, session drag ordering, tree drag-to-move and desktop drag-to-upload
 | Download | `remoteAgentSessions.downloadFile` | Save a selected remote file locally through OpenSSH; retain the original local destination until success. |
 | Preview HTML | `remoteAgentSessions.previewHtml` | Open a permanent, live static-HTML preview with root-scoped resources. |
 | Preview MD | `remoteAgentSessions.previewMarkdown` | Open an independent permanent tab using VS Code's native Markdown renderer. |
-| Open Preview in Browser | `remoteAgentSessions.openPreviewBrowser` | Open an independent browser tab for the active HTML preview, with its own connection status and refresh. The HTML toolbar also exposes Browser. |
+| Open Preview in Default Browser | `remoteAgentSessions.openPreviewBrowser` | Open the active HTML preview in the computer's default browser. Relative images, CSS and JavaScript continue to load from the linked remote directory through the local preview server. |
 
 HTML's **Refresh** button reloads that preview. Every explicit preview gets its own tab in the active editor group; the extension never creates an automatic split. Transfers expose progress/cancellation; folder uploads never merge an existing target, and regular-file replacements ask first.
+
+**Browser** launches the system default browser. Its URL remains usable after closing the VS Code preview tab, while this VS Code window and Session Files remain enabled and the directory stays linked. Refresh the external browser to read updated remote content.
 
 ## Backup and migration
 

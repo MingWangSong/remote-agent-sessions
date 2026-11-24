@@ -19,6 +19,7 @@ class HtmlPreviews {
   constructor(workspace) {
     this.workspace = workspace;
     this.items = new Set();
+    this.externalServers = new Map();
     this.opening = Promise.resolve();
     workspace.context.subscriptions.push(
       vscode.window.registerWebviewPanelSerializer("tmuxdock.preview", {
@@ -206,7 +207,7 @@ iframe{width:100%;height:calc(100% - 34px);border:0}
 </style></head><body>
 <header><span title="${escape(item.state.file)}">${escape(c.controller.host.label)} · ${escape(c.record?.title || c.entry.title)} · ${escape(item.state.file)}</span>
 <button id="refresh" title="Reload this preview or retry its connection">Refresh</button>
-${item.state.browser ? "" : '<button id="browser" title="Open an independent browser tab">Browser</button>'}</header>
+<button id="browser" title="Open in your default browser">Browser</button></header>
 <iframe id="page" sandbox="allow-scripts allow-same-origin allow-forms" referrerpolicy="no-referrer" src="${escape(item.url)}"></iframe>
 <div id="connection" role="status" aria-live="polite" ${server.unavailable ? 'data-state="offline"' : 'hidden'}>${server.unavailable ? "Disconnected · reconnecting automatically" : ""}</div>
 <script nonce="${nonce}">
@@ -248,7 +249,8 @@ window.addEventListener('message',e=>{
   stop(item) {
     clearTimeout(item.timer);
     item.timer = null;
-    item.server?.dispose();
+    if (item.server && this.externalServers.has(item.server)) item.server.removeAllListeners();
+    else item.server?.dispose();
     item.server = null;
     item.url = null;
   }
@@ -257,12 +259,21 @@ window.addEventListener('message',e=>{
       if (item.server && !item.server.unavailable) this.send(item, "reload");
   }
   suspend() {
+    this.disposeExternal();
     for (const item of this.items) {
       this.stop(item);
       this.empty(item, "Session Files is disabled.");
     }
   }
   reconcile() {
+    for (const [server, state] of this.externalServers) {
+      const controller = this.workspace.provider.controllers.find(c => c.host.id === state.hostId);
+      const target = this.workspace.fileRoots.find(controller, state.sessionId);
+      if (!target || target.root !== state.root) {
+        server.dispose();
+        this.externalServers.delete(server);
+      }
+    }
     for (const item of this.items) {
       const c = this.workspace.provider.controllers.find(
         (c) => c.host.id === item.state?.hostId,
@@ -291,6 +302,29 @@ window.addEventListener('message',e=>{
     }
   }
   async openBrowser(item = this.active) {
+    if (!item?.server || !item.context || item.closed)
+      throw new Error("Open an HTML preview before opening it in your browser");
+    if (!vscode.workspace.isTrusted)
+      throw new Error("HTML preview requires a trusted workspace");
+    const server = item.server;
+    const retained = this.externalServers.has(server);
+    // Keep the scoped localhost endpoint usable after its editor tab closes.
+    // No remote listener or downloaded single-file copy is needed.
+    this.externalServers.set(server, { ...item.state });
+    try {
+      const opened = await vscode.env.openExternal(vscode.Uri.parse(server.url(item.state.file)));
+      if (!opened) throw new Error("Your default browser could not be opened. Try Browser again");
+      return opened;
+    } catch (error) {
+      if (!retained) {
+        this.externalServers.delete(server);
+        if (item.closed || item.server !== server) server.dispose();
+      }
+      throw error;
+    }
+  }
+  // Retain support for existing Browser tabs saved by 3.3.8.
+  async openInternalBrowser(item = this.active) {
     if (item?.url && item.context)
       return this.open(vscode.Uri.from({
         scheme: "tmuxdock-remote", authority: item.state.hostId, path: item.state.file,
@@ -299,6 +333,11 @@ window.addEventListener('message',e=>{
   dispose() {
     this.disposed = true;
     for (const item of [...this.items]) item.panel.dispose();
+    this.disposeExternal();
+  }
+  disposeExternal() {
+    for (const server of this.externalServers.keys()) server.dispose();
+    this.externalServers.clear();
   }
 }
 module.exports = { HtmlPreviews };

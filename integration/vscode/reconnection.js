@@ -41,7 +41,7 @@ exports.run = async function () {
   assert.equal(draft.document.uri.path, path.join(root, 'draft.txt'));
   await draft.edit(builder => builder.insert(new vscode.Position(0, 0), 'Unsaved '));
   const html = await files.preview(nodes.find(node => node.name === 'report.html'));
-  const browser = await files.previews.openBrowser(html);
+  const browser = await files.previews.openInternalBrowser(html);
   const events = new Map([[html, []], [browser, []]]);
   const needsReload = new Set();
   for (const item of events.keys()) {
