@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.4.0 — 2026-11-25
+
+- Add collapsible categories under Running. Drag ordinary sessions into categories or existing parent sessions. Forked sessions follow their original parent.
+- Fork a linked Codex or Claude conversation into a new tmux session in the active pane's working directory. Keep the fork beneath its parent and restore it using its own conversation ID.
+
 ## 3.3.10 — 2026-11-24
 
 - Add Open in Browser to HTML files in the Session Files context menu. Open the selected file directly in the system default browser without an intermediate editor tab; reuse existing preview endpoints where possible.

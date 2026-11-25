@@ -5,7 +5,8 @@ const { randomUUID } = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const { createRecord, event, mergeSessions, uniqueLiteralTmuxName } = require('./model');
-const { builtinAgent, needsAgentBinding, agentCommand } = require('./agentSessions');
+const { builtinAgent, canForkAgent, needsAgentBinding, agentCommand } = require('./agentSessions');
+const { commandType } = require('./sessionType');
 const execFileAsync = promisify(execFile);
 
 class GitInspector {
@@ -36,6 +37,16 @@ function find(records, input) {
   const record = records.find((r) => r.id === (input.record?.id || input.id));
   if (!record) throw new Error('Session record no longer exists. Refresh the list.');
   return record;
+}
+function applyAgentBinding(record, binding) {
+  if (!record.windows.length) record.windows = [{ name: 'agent', cwd: record.cwd, panes: [] }];
+  const window = record.windows[0];
+  if (!window.panes?.length) window.panes = [{ cwd: window.cwd || record.cwd, active: true }];
+  record.agent = structuredClone(binding);
+  window.panes[0].agent = structuredClone(binding);
+  window.panes[0].command = agentCommand(binding);
+  window.command = window.panes[0].command;
+  touch(record, 'agent-bound', `Bound ${binding.type} conversation ${binding.sessionId}`);
 }
 function owns(record, live) {
   return live && (live.owner === record.id || (!record.identityVersion && !live.owner));
@@ -156,7 +167,7 @@ class SessionManager {
     }
     Object.assign(record, git);
   }
-  async create(input) {
+  async create(input, source) {
     if (!input.title?.trim()) throw new Error('A session title is required');
     checkCommand(input.command);
     const [, git] = await Promise.all([this.directoryChecker(input.cwd), this.git.inspect(input.cwd)]);
@@ -171,7 +182,10 @@ class SessionManager {
           name: 'agent', cwd: input.cwd, command: input.command || null,
           panes: [{ cwd: input.cwd, command: input.command || null, active: true }]
         }] });
-      if (builtinAgent(input.agent?.type)) record.agent = { type: input.agent.type, recoveryVersion: 1, launchState: 'pending' };
+      if (builtinAgent(input.agent?.type)) {
+        record.agent = { type: input.agent.type, recoveryVersion: 1, launchState: 'pending' };
+        if (source) record.agent.forkSourceId = source.sessionId;
+      }
       record.identityVersion = 1;
       record.recoveryVersion = 1;
       records.push(record);
@@ -180,6 +194,25 @@ class SessionManager {
     // Durable intent exists before starting any process; a crash leaves a recoverable record.
     await this.restore(record, true);
     return this.records.find((r) => r.id === record.id);
+  }
+  async fork(input, title, host) {
+    if (!this.agents) throw new Error('Agent forking is unavailable for this host');
+    const record = find(await this.store.load(), input);
+    const live = (await this.tmux.list()).find(session => session.owner === record.id || session.name === record.tmuxSession);
+    if (!owns(record, live) || !sameLiveIdentity(input.live, live))
+      throw new Error('The parent tmux session changed. Refresh and select it again.');
+    const windows = live.snapshotWindows || await this.tmux.listWindows(live.name);
+    const activeWindow = windows.find(window => window.active) || windows[0];
+    const pane = activeWindow?.panes?.find(candidate => candidate.active) || activeWindow?.panes?.[0];
+    const savedPane = record.windows.flatMap(window => window.panes || []).find(candidate => pane?.id && candidate.id === pane.id);
+    const currentType = commandType(pane?.currentCommand || live.currentCommand);
+    const primaryPane = record.windows[0]?.panes?.[0];
+    const source = savedPane?.agent || (!currentType || (primaryPane?.id === pane?.id &&
+      currentType === record.agent?.type) ? record.agent : null);
+    if (!canForkAgent(source) || (currentType && currentType !== source.type))
+      throw new Error('Select the linked Agent pane in the parent session, or use Link Agent History first.');
+    return this.create({ title, host, cwd: pane?.cwd || activeWindow?.cwd || record.cwd,
+      agent: { type: source.type }, forkParentId: record.id }, source);
   }
   async adopt(entry, title) {
     const result = await this.store.transaction(async (records) => {
@@ -229,7 +262,8 @@ class SessionManager {
           for (const p of w.panes?.length ? w.panes : [w]) {
             if (executeCommands && p.agent && p.agent.launchState !== 'new') {
               if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
-              p.agent = await this.agents.verify(p.agent);
+              p.agent = p.agent.launchState === 'fork-pending'
+                ? await this.agents.resolveFork(p.agent) : await this.agents.verify(p.agent);
             }
           }
         }
@@ -254,8 +288,8 @@ class SessionManager {
               const command = p.agent ? agentCommand(p.agent, p.agent.launchState === 'new', p.cwd || w.cwd || record.cwd) : p.command;
               plan.push({ session: record.tmuxSession, pane, command });
               if (p.agent) {
-                p.agent.launchState = 'started';
-                if (record.agent?.sessionId === p.agent.sessionId) record.agent.launchState = 'started';
+                if (p.agent.launchState !== 'fork-pending') p.agent.launchState = 'started';
+                if (record.agent?.sessionId === p.agent.sessionId) record.agent = structuredClone(p.agent);
               }
             }
             if (p.active) {
@@ -288,30 +322,29 @@ class SessionManager {
   }
 
   async prepareAgentRecovery(input) {
-    let record = find(await this.store.load(), input);
+    const record = find(await this.store.load(), input);
     if (needsAgentBinding(record)) {
       throw new Error('This older record has no Agent conversation ID. Bind the original conversation before restoring, or restore shells only.');
     }
     if (builtinAgent(record.agent?.type) && record.agent.recoveryVersion === 1 && !record.agent.manualRestore && !record.agent.sessionId) {
       if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
-      const binding = await this.agents.prepare(record.agent.type, record.title, record.cwd);
-      await this.saveAgentBinding(record, binding);
-      record = find(await this.store.load(), input);
+      if (record.agent.forkSourceId) {
+        // A concurrent Restore from another window must reuse the committed fork.
+        await this.store.transaction(async records => {
+          const current = find(records, input);
+          if (!current.agent?.forkSourceId || current.agent.sessionId || current.agent.manualRestore) return;
+          const binding = await this.agents.fork(current.agent.type, current.agent.forkSourceId, current.title, current.cwd);
+          applyAgentBinding(current, binding);
+        });
+      } else {
+        const binding = await this.agents.prepare(record.agent.type, record.title, record.cwd);
+        await this.saveAgentBinding(record, binding);
+      }
     }
   }
 
   async saveAgentBinding(input, binding) {
-    await this.store.transaction(records => {
-      const record = find(records, input);
-      if (!record.windows.length) record.windows = [{ name: 'agent', cwd: record.cwd, panes: [] }];
-      const window = record.windows[0];
-      if (!window.panes?.length) window.panes = [{ cwd: window.cwd || record.cwd, active: true }];
-      record.agent = structuredClone(binding);
-      window.panes[0].agent = structuredClone(binding);
-      window.panes[0].command = agentCommand(binding);
-      window.command = window.panes[0].command;
-      touch(record, 'agent-bound', `Bound ${binding.type} conversation ${binding.sessionId}`);
-    });
+    await this.store.transaction(records => applyAgentBinding(find(records, input), binding));
   }
 
   async bindAgentSession(input, type, sessionId, options) {
@@ -353,8 +386,9 @@ class SessionManager {
         for (const p of w.panes?.length ? w.panes : [w]) {
           if (p.agent) {
             if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
-            p.agent = await this.agents.verify(p.agent);
-            p.agent.launchState = 'started';
+            p.agent = p.agent.launchState === 'fork-pending'
+              ? await this.agents.resolveFork(p.agent) : await this.agents.verify(p.agent);
+            if (p.agent.launchState !== 'fork-pending') p.agent.launchState = 'started';
             p.command = agentCommand(p.agent, false, p.cwd || w.cwd || record.cwd);
             if (record.agent?.sessionId === p.agent.sessionId) record.agent = structuredClone(p.agent);
           } else if (builtinAgent(p.currentCommand)) {

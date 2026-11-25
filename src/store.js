@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const lockfile = require('proper-lockfile');
-const { validateBinding, builtinAgent } = require('./agentSessions');
+const { validateBinding, builtinAgent, UUID } = require('./agentSessions');
 
 function validateRecords(records) {
   if (!Array.isArray(records)) throw new Error('sessions must be an array');
@@ -20,9 +20,12 @@ function validateRecords(records) {
     if (ids.has(r.id) || names.has(r.tmuxSession)) throw new Error('Duplicate session in database');
     ids.add(r.id); names.add(r.tmuxSession);
     if (r.events !== undefined && !Array.isArray(r.events)) throw new Error('Invalid event history');
+    if (r.forkParentId !== undefined && (typeof r.forkParentId !== 'string' || !r.forkParentId || r.forkParentId === r.id))
+      throw new Error('Invalid fork parent');
     if (r.agent?.recoveryVersion === 1 && !r.agent.manualRestore) {
       if (r.agent.sessionId) validateBinding(r.agent);
       else if (!builtinAgent(r.agent.type) || r.agent.launchState !== 'pending') throw new Error('Invalid pending Agent binding');
+      if (r.agent.forkSourceId !== undefined && !UUID.test(r.agent.forkSourceId)) throw new Error('Invalid fork source conversation ID');
     }
     for (const w of r.windows) {
       if (!w || typeof w.name !== 'string' || !Array.isArray(w.panes || [])) throw new Error('Invalid window');

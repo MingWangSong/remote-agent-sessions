@@ -21,22 +21,24 @@ const type=path.basename(process.argv[1]),args=process.argv.slice(2),root=proces
 const file=path.join(root,'threads.json');
 const load=()=>fs.existsSync(file)?JSON.parse(fs.readFileSync(file)):{};
 const save=d=>fs.writeFileSync(file,JSON.stringify(d));
-if(args.includes('--help')){console.log('--session-id --name');process.exit(0);}
+if(args.includes('--help')){console.log('--session-id --name --fork-session');process.exit(0);}
 if(type==='codex'&&args[0]==='app-server'){
  readline.createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.id==null)return;let result={},d=load();
  if(m.method==='thread/start'){const id=crypto.randomUUID();d[id]={id,cwd:m.params.cwd};save(d);result={thread:{id}};}
+ if(m.method==='thread/fork'){const sourceId=m.params.threadId;if(!d[sourceId])throw Error('missing fork source');const id=crypto.randomUUID();d[id]={...d[sourceId],id,cwd:m.params.cwd,sourceId};save(d);result={thread:{id}};}
  if(m.method==='thread/name/set'){if(!d[m.params.threadId])throw Error('missing thread');d[m.params.threadId].name=m.params.name;save(d);}
  if(m.method==='thread/read'){if(!d[m.params.threadId]){console.log(JSON.stringify({id:m.id,error:{message:'Original conversation missing'}}));return;}result={thread:d[m.params.threadId]};}
  if(m.method==='thread/list'){result={data:Object.values(d).filter(t=>!!t.archived===!!m.params.archived&&(!m.params.cwd||t.cwd===m.params.cwd)),nextCursor:null};}
  if(m.method==='thread/unarchive'){if(!d[m.params.threadId])throw Error('missing original');d[m.params.threadId].archived=false;save(d);result={thread:d[m.params.threadId]};}
  console.log(JSON.stringify({id:m.id,result}));});
 }else{
- let id,name,mode;
+ let id,name,mode,sourceId;
  if(type==='claude'){const fresh=args.includes('--session-id');id=args[args.indexOf(fresh?'--session-id':'--resume')+1];if(id.endsWith('.jsonl'))id=path.basename(id,'.jsonl');name=args[args.indexOf('--name')+1];mode=fresh?'new':'resume';
  const dir=path.join(process.env.CLAUDE_CONFIG_DIR,'projects','fixture');fs.mkdirSync(dir,{recursive:true});const transcript=path.join(dir,id+'.jsonl');
+ if(args.includes('--fork-session')){sourceId=args[args.indexOf('--resume')+1];if(sourceId===id||!fs.existsSync(path.join(dir,sourceId+'.jsonl')))throw Error('missing fork source');if(fs.existsSync(transcript))throw Error('fork id already exists');mode='fork';}
  if(!fresh&&!fs.existsSync(transcript))throw Error('missing original history');fs.writeFileSync(transcript,JSON.stringify({sessionId:id,name}));
- }else{id=args[1];const d=load();if(!d[id]||d[id].archived)throw Error('missing original thread');name=d[id].name;mode='resume';if(!args.includes('--cd'))process.chdir(d[id].cwd);}
- fs.appendFileSync(path.join(root,'launches.jsonl'),JSON.stringify({type,id,name,mode,cwd:args.includes('--cd')?args[args.indexOf('--cd')+1]:process.cwd()})+'\\n');console.log('FIXTURE_AGENT_READY');setInterval(()=>{const p=path.join(root,'next-cwd');if(fs.existsSync(p)){process.chdir(fs.readFileSync(p,'utf8'));fs.writeFileSync(path.join(root,'cwd-ready'),process.cwd());}},50);
+ }else{id=args[1];const d=load();if(!d[id]||d[id].archived)throw Error('missing original thread');name=d[id].name;sourceId=d[id].sourceId;mode='resume';if(!args.includes('--cd'))process.chdir(d[id].cwd);}
+ fs.appendFileSync(path.join(root,'launches.jsonl'),JSON.stringify({type,id,name,mode,sourceId,cwd:args.includes('--cd')?args[args.indexOf('--cd')+1]:process.cwd()})+'\\n');console.log('FIXTURE_AGENT_READY');setInterval(()=>{const p=path.join(root,'next-cwd');if(fs.existsSync(p)){process.chdir(fs.readFileSync(p,'utf8'));fs.writeFileSync(path.join(root,'cwd-ready'),process.cwd());}},50);
 }
 `;
 
@@ -185,4 +187,42 @@ for (const type of ['claude', 'codex']) test(`Delete → reload → Restore: ${t
   assert.equal((await f.waitLaunches(3))[2].id, initial.id);
   if (type === 'codex') assert.equal(Object.keys(JSON.parse(await fs.readFile(path.join(f.dir, 'threads.json')))).length, 1);
   assert.ok(keeper);
+});
+
+for (const type of ['claude', 'codex']) test(`Fork ${type}: start a new tmux and conversation, then restore the child by its own ID`, async t => {
+  const f = await fixture(t);
+  const manager = f.manager();
+  const root = await fs.realpath(f.dir);
+  const parent = await manager.create({ title: 'Parent', cwd: root, agent: { type } });
+  await f.waitLaunches(1);
+  const activeDirectory = path.join(root, "Agent work ' 中文");
+  await fs.mkdir(activeDirectory);
+  await fs.writeFile(path.join(root, 'next-cwd'), activeDirectory);
+  for (let i = 0; i < 100; i++) {
+    if ((await fs.readFile(path.join(root, 'cwd-ready'), 'utf8').catch(() => '')) === activeDirectory) break;
+    await pause(50);
+  }
+  await fs.rm(path.join(root, 'next-cwd'));
+  await manager.refresh(false);
+  const entry = manager.entries.find(item => item.id === parent.id);
+  const child = await manager.fork(entry, 'Child');
+  const [, forked] = await f.waitLaunches(2);
+  assert.equal(child.forkParentId, parent.id);
+  assert.equal(child.workspaceRoot, activeDirectory);
+  assert.equal(forked.cwd, activeDirectory);
+  assert.equal(forked.sourceId, parent.agent.sessionId);
+  assert.equal(forked.id, child.agent.sessionId);
+  assert.notEqual(forked.id, parent.agent.sessionId);
+  assert.ok(await f.tmux.exists(parent.tmuxSession));
+  assert.ok(await f.tmux.exists(child.tmuxSession));
+
+  await manager.terminate(child);
+  const reloaded = f.manager();
+  await reloaded.initialize();
+  await Promise.all([reloaded.restore(child, true), f.manager().restore(child, true)]);
+  const [, , restored] = await f.waitLaunches(3);
+  assert.equal(restored.id, forked.id);
+  assert.equal(restored.mode, 'resume');
+  assert.equal((await f.store.load()).find(item => item.id === child.id).forkParentId, parent.id);
+  assert.ok(await f.tmux.exists(parent.tmuxSession));
 });

@@ -13,17 +13,26 @@ function validateBinding(agent) {
       typeof agent.name !== 'string' || !agent.name || /[\x00-\x1f\x7f]/.test(agent.name)) {
     throw new Error('Invalid Agent conversation binding');
   }
+  if (agent.launchState === 'fork-pending' &&
+      (agent.type !== 'claude' || !UUID.test(agent.forkSourceId || '') ||
+        agent.forkSourceId.toLowerCase() === agent.sessionId.toLowerCase()))
+    throw new Error('Invalid Claude fork source');
   return agent;
 }
 function agentCommand(agent, fresh = false, cwd) {
   validateBinding(agent);
   const args = agent.type === 'claude'
-    ? ['claude', fresh ? '--session-id' : '--resume', fresh ? agent.sessionId : (agent.transcriptPath || agent.sessionId), '--name', agent.name]
+    ? ['claude', ...(agent.launchState === 'fork-pending'
+      ? ['--resume', agent.forkSourceId, '--fork-session', '--session-id', agent.sessionId]
+      : [fresh ? '--session-id' : '--resume', fresh ? agent.sessionId : (agent.transcriptPath || agent.sessionId)]), '--name', agent.name]
     : ['codex', 'resume', agent.sessionId, ...(cwd ? ['--cd', cwd] : [])];
   return ['sh', '-c', AGENT_EXEC, 'tmuxdock-agent', ...args].map(shellQuote).join(' ');
 }
 function needsAgentBinding(record) {
   return builtinAgent(record.agent?.type) && !record.agent.manualRestore && record.agent.recoveryVersion !== 1;
+}
+function canForkAgent(agent) {
+  return builtinAgent(agent?.type) && agent.recoveryVersion === 1 && !agent.manualRestore && UUID.test(agent.sessionId || '');
 }
 
 class RpcClient {
@@ -81,6 +90,7 @@ class AgentSessions {
       if (!help.includes('--session-id') || !help.includes('--name')) {
         throw new Error('Update Claude Code: automatic conversation recovery requires --session-id and --name');
       }
+      this.claudeCanFork = help.includes('--fork-session');
       this.claudeSupportExpires = Date.now() + 5 * 60 * 1000;
     })().finally(() => { this.claudeSupportPromise = null; });
     return this.claudeSupportPromise;
@@ -112,17 +122,52 @@ class AgentSessions {
     }
     return { type, name, sessionId, recoveryVersion: 1, launchState: 'new' };
   }
+  async fork(type, sourceId, name, cwd) {
+    validateBinding({ type, sessionId: sourceId, name });
+    if (type === 'claude') {
+      await this.ensureClaudeSupport();
+      if (!this.claudeCanFork) throw new Error('Update Claude Code on this host to use --fork-session.');
+      await this.verify({ type, sessionId: sourceId, name });
+      return { type, name, sessionId: randomUUID(), recoveryVersion: 1, launchState: 'fork-pending', forkSourceId: sourceId };
+    }
+    return this.codex(async rpc => {
+      const { thread } = await rpc.request('thread/fork', { threadId: sourceId, cwd, excludeTurns: true });
+      const sessionId = thread?.id;
+      if (!UUID.test(sessionId || '') || sessionId.toLowerCase() === sourceId.toLowerCase() || thread.ephemeral)
+        throw new Error('Codex did not return a distinct persistent fork ID');
+      await rpc.request('thread/name/set', { threadId: sessionId, name });
+      await rpc.request('thread/read', { threadId: sessionId, includeTurns: false });
+      return { type, name, sessionId, recoveryVersion: 1, launchState: 'started' };
+    });
+  }
+  async resolveFork(agent) {
+    const transcriptPath = await this.claudeTranscript(agent.sessionId);
+    if (transcriptPath) {
+      const { forkSourceId, ...binding } = agent;
+      return { ...binding, launchState: 'started', transcriptPath };
+    }
+    // Claude creates the fork in the interactive CLI. Until the child is on
+    // disk, retry only the same planned ID from the same verified source.
+    await this.verify({ type: agent.type, name: agent.name, sessionId: agent.forkSourceId });
+    return agent;
+  }
+  async claudeTranscript(sessionId) {
+    const script = 'root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}; ' +
+      'if test -d "$root/projects"; then find "$root/projects" -type f -name "$1.jsonl" -print -quit; fi';
+    const result = await this.transport.run('sh', ['-c', script, 'tmuxdock-agent', sessionId]);
+    const transcriptPath = result.stdout.trim();
+    if (!transcriptPath) return undefined;
+    if (!transcriptPath.startsWith('/') || /[\x00\r\n]/.test(transcriptPath) || !transcriptPath.endsWith('/' + sessionId + '.jsonl'))
+      throw new Error('Invalid Claude transcript path');
+    return transcriptPath;
+  }
   async verify(agent) {
     validateBinding(agent);
     if (agent.type === 'codex') {
       await this.codex(rpc => rpc.request('thread/read', { threadId: agent.sessionId, includeTurns: false }));
     } else {
-      const script = 'root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}; ' +
-        'if test -d "$root/projects"; then find "$root/projects" -type f -name "$1.jsonl" -print -quit; fi';
-      const result = await this.transport.run('sh', ['-c', script, 'tmuxdock-agent', agent.sessionId]);
-      const transcriptPath = result.stdout.trim();
+      const transcriptPath = await this.claudeTranscript(agent.sessionId);
       if (!transcriptPath) throw new Error('Original Claude conversation history was not found. It may not have been saved yet or may have been removed. No new conversation was created.');
-      if (!transcriptPath.startsWith('/') || /[\x00\r\n]/.test(transcriptPath) || !transcriptPath.endsWith('/' + agent.sessionId + '.jsonl')) throw new Error('Invalid Claude transcript path');
       return { ...agent, transcriptPath };
     }
     return agent;
@@ -165,4 +210,4 @@ class AgentSessions {
   }
 }
 
-module.exports = { AgentSessions, RpcClient, builtinAgent, needsAgentBinding, agentCommand, validateBinding, UUID };
+module.exports = { AgentSessions, RpcClient, builtinAgent, canForkAgent, needsAgentBinding, agentCommand, validateBinding, UUID };

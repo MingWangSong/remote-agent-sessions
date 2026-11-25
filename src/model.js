@@ -52,6 +52,7 @@ function createRecord(input) {
     repoRoot: input.repoRoot || null,
     gitBranch: input.gitBranch || null,
     agent: input.agent || null,
+    ...(input.forkParentId ? { forkParentId: input.forkParentId } : {}),
     windows: Array.isArray(input.windows) ? input.windows : [],
     note: input.note || '',
     archived: false,

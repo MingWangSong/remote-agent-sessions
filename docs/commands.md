@@ -2,7 +2,7 @@
 
 [Overview](../README.md) · [中文指南](guide.zh-CN.md) · [Changelog](../CHANGELOG.md)
 
-This index covers all **40 contributed commands**. Names match the current English UI. Context actions use the selected host, session, file or directory; commands in the Command Palette appear under **TmuxDock**. Availability follows the item's state. The legacy stop alias is retained for compatibility and hidden from the palette.
+This index covers all **44 contributed commands**. Names match the current English UI. Context actions use the selected host, session, file or directory; commands in the Command Palette appear under **TmuxDock**. Availability follows the item's state. The legacy stop alias is retained for compatibility and hidden from the palette.
 
 ## Hosts and discovery
 
@@ -20,6 +20,10 @@ This index covers all **40 contributed commands**. Names match the current Engli
 | Tool | Command ID | Effect |
 | :--- | :--- | :--- |
 | New Session | `remoteAgentSessions.create` | Create a named tmux session for Codex, Claude, shell or a custom command. |
+| New Category | `remoteAgentSessions.newCategory` | Add a collapsible folder under Running for the selected host. |
+| Rename Category | `remoteAgentSessions.renameCategory` | Rename a Running folder. |
+| Remove Category | `remoteAgentSessions.removeCategory` | Move its sessions out of the category and remove the folder. |
+| Fork Session | `remoteAgentSessions.fork` | Branch a linked live Codex or Claude conversation and open the new tmux session beneath its parent. |
 | Attach Session | `remoteAgentSessions.attach` | Connect to a live session, reusing its open terminal when available. |
 | Rename Session | `remoteAgentSessions.rename` | Rename a live/recoverable session, checking its identity. |
 | Session Details | `remoteAgentSessions.showDetails` | Inspect host, saved directory, layout, Agent binding and recovery details. |

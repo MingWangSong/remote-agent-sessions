@@ -139,6 +139,54 @@ exports.run = async function () {
     await controller.manager.forget(stopped);
   });
 
+  await check('Running categories accept ordinary sessions and carry fixed fork descendants', async () => {
+    const parent = record;
+    const child = await controller.manager.create({ title: 'Fixed fork fixture', cwd: directory });
+    const other = await controller.manager.create({ title: 'Movable session fixture', cwd: directory });
+    await controller.manager.store.transaction(records => {
+      records.find(entry => entry.id === child.id).forkParentId = parent.id;
+    });
+    await controller.manager.reloadRecords();
+    const provider = api.provider;
+    const running = provider.getChildren(provider.getChildren()[0]).find(group => group.group === 'running');
+    const find = (node, id) => provider.getChildren(node).find(item => item.entry?.id === id);
+    const drop = async (node, target) => {
+      const transfer = new vscode.DataTransfer();
+      provider.handleDrag([node], transfer);
+      await provider.handleDrop(target, transfer);
+    };
+    try {
+      await provider.categories.create(host.id, 'Reports');
+      const category = provider.getChildren(running).find(item => item.kind === 'category');
+      assert.equal(category.collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
+      const rootParent = find(running, parent.id);
+      const nested = find(rootParent, child.id);
+      assert.equal(provider.getParent(nested).id, rootParent.id);
+      const refused = new vscode.DataTransfer();
+      provider.handleDrag([nested], refused);
+      assert.equal(refused.get(provider.dragMimeTypes[0]), undefined);
+      await drop(rootParent, category);
+      const movedParent = find(category, parent.id);
+      assert.equal(find(movedParent, child.id).entry.id, child.id);
+      await drop(find(running, other.id), movedParent);
+      assert.equal(provider.getParent(find(movedParent, other.id)).id, movedParent.id);
+      await drop(find(movedParent, other.id), running);
+      assert.ok(find(running, other.id));
+      await controller.manager.terminate(parent);
+      assert.ok(find(category, child.id), 'a live child stays visible when its parent stops');
+      await controller.manager.restore(parent);
+      assert.ok(find(find(category, parent.id), child.id), 'the child returns beneath its restored parent');
+      await provider.categories.remove(host.id, category.category.id);
+      assert.ok(find(find(running, parent.id), child.id), 'removing the category preserves sessions and lineage');
+    } finally {
+      await controller.manager.terminate(child);
+      await controller.manager.forget(child);
+      await controller.manager.terminate(other);
+      await controller.manager.forget(other);
+      await provider.order.reset(host.id);
+    }
+  });
+
   await check('Codex, Claude and shell have distinct icons in both groups; rows show no branch', async () => {
     const saved = controller.manager.entries;
     try {

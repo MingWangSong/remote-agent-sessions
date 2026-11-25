@@ -11,10 +11,11 @@ const { SessionStore, validateRecords } = require('./store');
 const { SshClient, remoteCommand } = require('./ssh');
 const { TmuxClient } = require('./tmux');
 const { SessionOrder, sessionKey } = require('./sessionOrder');
+const { SessionCategories, categoryNameError, runningTree } = require('./sessionCategories');
 const { Operations } = require('./operations');
 const { sessionType, TYPE_ICONS, TYPE_LABELS } = require('./sessionType');
 const { terminalTitle, bannerText } = require('./terminalTitle');
-const { AgentSessions, builtinAgent, needsAgentBinding, UUID } = require('./agentSessions');
+const { AgentSessions, builtinAgent, canForkAgent, needsAgentBinding, UUID } = require('./agentSessions');
 const { TERMINAL_CONTEXT, TerminalConnections, terminalMetadata, guardedAttachScript } = require('./terminalPersistence');
 const { reconnectingTerminal } = require('./reconnectingTerminal');
 const { chooseCodexConversation } = require('./conversationPicker');
@@ -153,8 +154,8 @@ class HostTreeItem extends vscode.TreeItem {
 }
 
 class SessionTreeItem extends vscode.TreeItem {
-  constructor(controller, entry) {
-    super(entry.title, vscode.TreeItemCollapsibleState.None);
+  constructor(controller, entry, hasForks = false) {
+    super(entry.title, hasForks ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
     this.kind = 'session';
     this.controller = controller;
     this.entry = entry;
@@ -164,6 +165,8 @@ class SessionTreeItem extends vscode.TreeItem {
     this.iconPath = sessionIconPath(entry);
     if (entry.status === 'live') {
       this.contextValue = entry.managed ? 'sessionLiveManaged' : 'sessionLiveUnmanaged';
+      if (canForkAgent(entry.record?.agent) || entry.record?.windows?.some(window =>
+        window.panes?.some(pane => canForkAgent(pane.agent)))) this.contextValue += 'CanFork';
       this.command = { command: 'remoteAgentSessions.attach', title: 'Attach Session', arguments: [this] };
     } else if (entry.status === 'recoverable') {
       this.contextValue = 'sessionRecoverable';
@@ -203,10 +206,23 @@ class SessionGroupTreeItem extends vscode.TreeItem {
     this.controller = controller;
     this.group = group;
     this.id = `group:${controller.host.id}:${group}`;
-    this.contextValue = 'statusGroup';
+    this.contextValue = group === 'running' ? 'runningGroup' : 'statusGroup';
     this.description = String(count);
     this.iconPath = new vscode.ThemeIcon(group === 'running' ? 'play-circle' : group === 'stopped' ? 'history' : 'warning');
     this.tooltip = group === 'unknown' ? 'The host is unavailable or the session identity changed; these sessions are not confirmed stopped.' : labels[group];
+  }
+}
+
+class SessionCategoryItem extends vscode.TreeItem {
+  constructor(controller, category, count) {
+    super(category.name, vscode.TreeItemCollapsibleState.Collapsed);
+    this.kind = 'category';
+    this.controller = controller;
+    this.category = category;
+    this.id = `category:${controller.host.id}:${category.id}`;
+    this.contextValue = 'sessionCategory';
+    this.description = String(count);
+    this.iconPath = new vscode.ThemeIcon('folder');
   }
 }
 
@@ -218,6 +234,7 @@ class MultiHostTreeProvider {
     this.onCountChanged = onCountChanged;
     this.controllers = [];
     this.order = new SessionOrder(context.globalState);
+    this.categories = new SessionCategories(context.globalState);
     this.dragMimeTypes = ['application/vnd.code.tree.remoteagentsessions.sessions'];
     this.dropMimeTypes = [...this.dragMimeTypes];
     this.changeEmitter = new vscode.EventEmitter();
@@ -226,15 +243,48 @@ class MultiHostTreeProvider {
 
   getTreeItem(item) { return item; }
 
+  running(controller) {
+    const entries = this.order.sort(controller.host.id, controller.manager.entries.filter(entry => entry.status === 'live'));
+    const state = this.categories.get(controller.host.id);
+    return { ...runningTree(entries, controller.manager.records, state), entries, categories: state.categories };
+  }
+
+  sessionItem(controller, entry, tree = this.running(controller)) {
+    return new SessionTreeItem(controller, entry, tree.children.has('parent:' + entry.id));
+  }
+
+  categoryItem(controller, category, tree) {
+    return new SessionCategoryItem(controller, category, tree.children.get('category:' + category.id)?.length || 0);
+  }
+
   getParent(item) {
-    if (item.kind === 'session') return new SessionGroupTreeItem(item.controller, sessionGroup(item.entry),
-      item.controller.manager.entries.filter(entry => sessionGroup(entry) === sessionGroup(item.entry)).length);
+    const { controller } = item;
+    if (item.kind === 'session' && item.entry.status === 'live') {
+      const tree = this.running(controller);
+      const location = tree.locations.get(item.entry.id);
+      if (location?.parent) return this.sessionItem(controller, location.parent, tree);
+      const category = tree.categories.find(candidate => candidate.id === location?.categoryId);
+      if (category) return this.categoryItem(controller, category, tree);
+    }
+    if (item.kind === 'session' || item.kind === 'category') {
+      const group = item.kind === 'category' ? 'running' : sessionGroup(item.entry);
+      return new SessionGroupTreeItem(controller, group, controller.manager.entries.filter(entry => sessionGroup(entry) === group).length);
+    }
     if (item.kind === 'sessionGroup') return new HostTreeItem(item.controller);
     return undefined;
   }
 
   getChildren(item) {
     if (!item) return this.controllers.map((controller) => new HostTreeItem(controller));
+    if (item.kind === 'category' || (item.kind === 'session' && item.entry.status === 'live') ||
+        (item.kind === 'sessionGroup' && item.group === 'running')) {
+      const { controller } = item;
+      const tree = this.running(controller);
+      const key = item.kind === 'category' ? 'category:' + item.category.id :
+        item.kind === 'session' ? 'parent:' + item.entry.id : 'category:';
+      const sessions = (tree.children.get(key) || []).map(entry => this.sessionItem(controller, entry, tree));
+      return key === 'category:' ? [...tree.categories.map(category => this.categoryItem(controller, category, tree)), ...sessions] : sessions;
+    }
     if (item.kind === 'sessionGroup') {
       return this.order.sort(item.controller.host.id, item.controller.manager.entries
         .filter(entry => sessionGroup(entry) === item.group)).map(entry => new SessionTreeItem(item.controller, entry));
@@ -244,15 +294,14 @@ class MultiHostTreeProvider {
     if (!controller.online && !controller.manager.entries.length) {
       return [new MessageTreeItem(controller, 'Host unavailable — refresh or open SSH terminal', 'debug-disconnect')];
     }
-    if (!controller.manager.entries.length) return [new MessageTreeItem(controller, 'No tmux sessions found')];
     return ['running', 'stopped', 'unknown'].flatMap(group => {
       const count = controller.manager.entries.filter(entry => sessionGroup(entry) === group).length;
-      return count ? [new SessionGroupTreeItem(controller, group, count)] : [];
+      return count || (group === 'running' && controller.online) ? [new SessionGroupTreeItem(controller, group, count)] : [];
     });
   }
 
   handleDrag(items, transfer) {
-    const sessions = items.filter(item => item.kind === 'session');
+    const sessions = items.filter(item => item.kind === 'session' && !item.entry.record?.forkParentId);
     if (!sessions.length || sessions.some(item => item.controller !== sessions[0].controller || sessionGroup(item.entry) !== sessionGroup(sessions[0].entry))) return;
     transfer.set(this.dragMimeTypes[0], new vscode.DataTransferItem({
       hostId: sessions[0].controller.host.id, group: sessionGroup(sessions[0].entry), keys: sessions.map(item => sessionKey(item.entry))
@@ -262,12 +311,37 @@ class MultiHostTreeProvider {
   async handleDrop(target, transfer) {
     const data = transfer.get(this.dragMimeTypes[0])?.value;
     if (!data || !target?.controller || data.hostId !== target.controller.host.id || !Array.isArray(data.keys)) return;
-    const group = target.kind === 'session' ? sessionGroup(target.entry) : target.kind === 'sessionGroup' ? target.group : data.group;
+    const group = target.kind === 'session' ? sessionGroup(target.entry) :
+      target.kind === 'sessionGroup' ? target.group : target.kind === 'category' ? 'running' : data.group;
     if (group !== data.group) return;
     const entries = target.controller.manager.entries.filter(entry => sessionGroup(entry) === group);
-    if (!data.keys.every(key => entries.some(entry => sessionKey(entry) === key))) return;
-    await this.order.move(data.hostId, entries, data.keys,
-      target.kind === 'session' ? sessionKey(target.entry) : null);
+    if (!data.keys.every(key => entries.some(entry => sessionKey(entry) === key && !entry.record?.forkParentId))) return;
+    const keys = data.keys;
+    let before = target.kind === 'session' ? sessionKey(target.entry) : null;
+    if (keys.includes(before)) return;
+    if (group === 'running') {
+      const tree = this.running(target.controller);
+      let parent;
+      let categoryId = target.kind === 'category' ? target.category.id : null;
+      if (target.kind === 'session') {
+        const location = tree.locations.get(target.entry.id);
+        if (!location) return;
+        if (tree.children.has('parent:' + target.entry.id)) {
+          parent = target.entry;
+          before = null;
+        } else {
+          parent = location.parent;
+          categoryId = location.categoryId;
+        }
+        // A drop on a descendant would make a cycle. Preserve the current tree.
+        for (let node = parent; node; node = tree.locations.get(node.id)?.parent) {
+          if (keys.includes(sessionKey(node))) return;
+          categoryId = tree.locations.get(node.id)?.categoryId;
+        }
+      }
+      await this.categories.move(data.hostId, keys, categoryId, parent && sessionKey(parent));
+    }
+    await this.order.move(data.hostId, entries, keys, before);
     this.changeEmitter.fire(undefined);
   }
 
@@ -350,14 +424,15 @@ async function activate(context) {
       const { controller, entry } = context;
       const current = provider.controllers.find(candidate => candidate.host.id === controller.host.id);
       const selected = current?.manager.entries.find(candidate => candidate.id === entry.id);
-      if (selected) await view.reveal(new SessionTreeItem(current, selected), { select: true, focus: false });
+      if (selected) await view.reveal(provider.sessionItem(current, selected), { select: true, focus: false });
     }).catch(() => {});
   };
   context.subscriptions.push(status, provider, view);
 
   const operations = new Operations();
   const labels = { create: 'New session', attach: 'Connecting', refresh: 'Refreshing sessions', restore: 'Restoring session',
-    rename: 'Renaming session', delete: 'Stopping session', terminate: 'Stopping session', adopt: 'Saving recovery snapshot' };
+    rename: 'Renaming session', delete: 'Stopping session', terminate: 'Stopping session', adopt: 'Saving recovery snapshot',
+    fork: 'Forking session' };
   const command = (name, handler) => {
     context.subscriptions.push(vscode.commands.registerCommand(name, (...args) => {
       const item = args[0];
@@ -412,6 +487,27 @@ async function activate(context) {
     const controller = await resolveHost(item, provider);
     if (!controller) return;
     await provider.order.reset(controller.host.id);
+    provider.changed();
+  });
+
+  command('remoteAgentSessions.newCategory', async item => {
+    const controller = await resolveHost(item, provider);
+    if (!controller) return;
+    const name = await vscode.window.showInputBox({ title: 'New Running Category', validateInput: categoryNameError });
+    if (name === undefined) return;
+    await provider.categories.create(controller.host.id, name);
+    provider.changed();
+  });
+  command('remoteAgentSessions.renameCategory', async item => {
+    if (item?.kind !== 'category') return;
+    const name = await vscode.window.showInputBox({ title: 'Rename Category', value: item.category.name, validateInput: categoryNameError });
+    if (name === undefined) return;
+    await provider.categories.rename(item.controller.host.id, item.category.id, name);
+    provider.changed();
+  });
+  command('remoteAgentSessions.removeCategory', async item => {
+    if (item?.kind !== 'category') return;
+    await provider.categories.remove(item.controller.host.id, item.category.id);
     provider.changed();
   });
 
@@ -570,6 +666,21 @@ async function activate(context) {
     report('Checking session identity and opening the terminal');
     await attachEntry(resolved.controller, resolved.entry);
     provider.changed();
+  });
+
+  command('remoteAgentSessions.fork', async (item, report) => {
+    const resolved = await resolveSession(item, provider, entry => entry.status === 'live' && entry.managed);
+    if (!resolved) return;
+    const { controller, entry } = resolved;
+    const name = await vscode.window.showInputBox({
+      title: `Fork ${entry.title}`, value: entry.tmuxSession.slice(0, 75) + '-fork', validateInput: validateTmuxNameInput
+    });
+    if (name === undefined) return;
+    report('Forking the linked conversation and preparing tmux');
+    const record = await controller.manager.fork(entry, name.trim(), controller.host.id);
+    provider.changed();
+    report('Opening the forked session');
+    await attachEntry(controller, controller.manager.entries.find(candidate => candidate.id === record.id));
   });
 
   command('remoteAgentSessions.adopt', async (item) => {
@@ -952,8 +1063,8 @@ async function chooseAgentCommand() {
 
 async function chooseRestoreCommandPolicy(record, configuration) {
   const commands = (record.windows || []).flatMap((window) => (window.panes?.length ? window.panes : [window]).map((pane) => pane.command).filter(Boolean));
-  if (!commands.length) return false;
   const policy = configuration.get('restoreCommands', 'ask');
+  if (!commands.length) return policy !== 'never' && Boolean(record.forkParentId && record.agent?.forkSourceId && !record.agent.manualRestore);
   if (policy === 'always') return true;
   if (policy === 'never') return false;
   const runnable = record.windows.flatMap(window => window.panes?.length ? window.panes : [window]).filter(pane => pane.command);
