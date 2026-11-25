@@ -195,8 +195,10 @@ exports.run = async function () {
         record: { id: `${status}-${type}`, agent: type === 'shell' ? null : { type }, gitBranch: 'must-not-appear-in-row' }
       })));
       const root = api.provider.getChildren()[0];
-      for (const group of api.provider.getChildren(root)) {
-        const items = api.provider.getChildren(group);
+      // Capture both groups before SVG reads yield to the periodic SSH refresh.
+      const groups = api.provider.getChildren(root).map(group =>
+        api.provider.getChildren(group).filter(item => item.kind === 'session'));
+      for (const items of groups) {
         assert.equal(new Set(items.map(item => item.iconPath.id || path.basename(item.iconPath.light.fsPath))).size, 3);
         for (const item of items) {
           if (item.entry.record.agent) {
