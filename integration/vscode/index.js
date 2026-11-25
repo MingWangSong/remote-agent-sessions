@@ -189,6 +189,7 @@ exports.run = async function () {
             return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
           })()`);
           const click = async (point, button) => {
+            await browser.send('Input.dispatchMouseEvent', { ...point, type: 'mouseMoved' }, workbench.session);
             for (const type of ['mousePressed', 'mouseReleased'])
               await browser.send('Input.dispatchMouseEvent', { ...point, type, button,
                 buttons: type === 'mouseReleased' ? 0 : button === 'right' ? 2 : 1, clickCount: 1 }, workbench.session);
@@ -207,7 +208,15 @@ exports.run = async function () {
           } finally { listener.dispose(); }
           fork = await coords('.context-view .action-label', 'Fork Session');
           assert.ok(fork, 'the same native menu stays open after a background refresh');
-          await click(fork, 'left');
+          // Invoke the rendered VS Code menu item even if Xvfb's pointer
+          // coordinates drift when the context view is positioned at an edge.
+          assert.ok(await browser.evaluate(workbench, `(() => {
+            const action = [...document.querySelectorAll('.context-view .action-label')].find(element =>
+              element.innerText.trim() === 'Fork Session' && element.getBoundingClientRect().width > 0);
+            if (!action) return false;
+            action.click();
+            return true;
+          })()`));
           step = 'Fork name input from the clicked row';
           await waitFor(() => browser.evaluate(workbench, `[...document.querySelectorAll('.quick-input-widget input')].some(input =>
             input.value === ${JSON.stringify(child.title + '-fork')})`));
