@@ -178,7 +178,12 @@ exports.run = async function () {
         provider.changed();
         await api.view.reveal(node, { select: true, focus: true });
         const browser = await require('./clipboard').browser();
-        let workbench, step = 'workbench';
+        const originalFork = controller.manager.fork;
+        let submitted, workbench, step = 'workbench';
+        controller.manager.fork = async (entry, name) => {
+          submitted = { id: entry.id, name };
+          return { id: 'fork-result-fixture' };
+        };
         try {
           workbench = await browser.findDocument('!!document.querySelector(".monaco-workbench")', 'the workbench');
           const coords = async (selector, label) => browser.evaluate(workbench, `(() => {
@@ -215,6 +220,11 @@ exports.run = async function () {
           step = 'Fork name input from the clicked row';
           await waitFor(() => browser.evaluate(workbench, `[...document.querySelectorAll('.quick-input-widget input')].some(input =>
             input.value === ${JSON.stringify(child.title + '-fork')})`));
+          step = 'one name submits the fork without a second prompt';
+          for (const type of ['keyDown', 'keyUp'])
+            await browser.send('Input.dispatchKeyEvent', { type, key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, workbench.session);
+          await waitFor(() => submitted, 3000);
+          assert.deepEqual(submitted, { id: child.id, name: child.title + '-fork' });
         } catch (error) {
           const shown = workbench && await browser.evaluate(workbench, `({
             rows: [...document.querySelectorAll('.monaco-list-row .label-name')].map(node => node.innerText),
@@ -223,6 +233,7 @@ exports.run = async function () {
           })`).catch(() => undefined);
           throw new Error(`Failed at ${step}: ${error.message}. Workbench: ${JSON.stringify(shown)}`, { cause: error });
         } finally {
+          controller.manager.fork = originalFork;
           if (workbench) for (const type of ['keyDown', 'keyUp'])
             await browser.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, workbench.session).catch(() => {});
           browser.close();

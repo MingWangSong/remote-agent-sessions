@@ -11,7 +11,7 @@ function parseTmuxList(stdout, separator = FIELD_SEPARATOR) {
   const sessions = new Map();
   const snapshots = new Map();
   for (const [name, created, attached, windows, activity, id, owner, command, activeWindow, activePane,
-    windowId, windowName, layout, paneId, cwd] of rows(stdout, separator)) {
+    windowId, windowName, layout, paneId, cwd, pid] of rows(stdout, separator)) {
     const key = id || name;
     if (!sessions.has(key)) sessions.set(key, {
       name, created: epochToIso(created), attached: Number(attached || 0),
@@ -28,7 +28,8 @@ function parseTmuxList(stdout, separator = FIELD_SEPARATOR) {
       const windows = snapshots.get(key);
       if (!windows.has(windowId)) windows.set(windowId, { id: windowId, name: windowName, layout,
         active: activeWindow === '1', cwd, command: null, panes: [] });
-      windows.get(windowId).panes.push({ id: paneId, cwd, currentCommand: command, active: activePane === '1', command: null });
+      windows.get(windowId).panes.push({ id: paneId, cwd, currentCommand: command, active: activePane === '1',
+        command: null, ...(pid ? { pid: Number(pid) } : {}) });
     }
   }
   for (const [key, windows] of snapshots) sessions.get(key).snapshotWindows = [...windows.values()];
@@ -85,7 +86,7 @@ class TmuxClient {
       '#{session_name}', '#{session_created}', '#{session_attached}', '#{session_windows}',
       '#{session_activity}', '#{session_id}', '#{@ras_id}',
       '#{pane_current_command}', '#{window_active}', '#{pane_active}',
-      '#{window_id}', '#{window_name}', '#{window_layout}', '#{pane_id}', '#{pane_current_path}'
+      '#{window_id}', '#{window_name}', '#{window_layout}', '#{pane_id}', '#{pane_current_path}', '#{pane_pid}'
     ].join(this.separator)], { allowNoServer: true }), this.separator);
   }
   async exists(name) { return (await this.list()).some((s) => s.name === name); }

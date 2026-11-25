@@ -25,7 +25,7 @@ function conversationItems(conversations, record) {
   }));
 }
 
-async function chooseCodexConversation(ui, agents, record, hostLabel, { forFork = false } = {}) {
+async function chooseCodexConversation(ui, agents, record, hostLabel) {
   const selection = await new Promise(resolve => {
     const picker = ui.createQuickPick();
     picker.matchOnDescription = true; picker.matchOnDetail = true; picker.ignoreFocusOut = true;
@@ -41,18 +41,16 @@ async function chooseCodexConversation(ui, agents, record, hostLabel, { forFork 
     const action = (label, value, detail) => ({ label, action: value, detail, alwaysShow: true });
     const render = () => {
       picker.title = `Choose ${archived ? 'Archived ' : ''}Original Codex Conversation · ${plain(record.title, 80)} · ${plain(hostLabel, 60)}`;
-      picker.placeholder = forFork ? 'Choose the conversation to fork; search title, date or directory.'
-        : archived ? 'Choose a history to unarchive and link; search title, date or directory.'
+      picker.placeholder = archived ? 'Choose a history to unarchive and link; search title, date or directory.'
           : 'Choose the original history to link; search title, date or directory.';
       picker.items = [
         ...(error ? [action('$(warning) Could not load history — retry', 'retry', plain(error.message, 300))] : []),
         ...conversationItems(conversations, record),
         ...(!error && !busy && !conversations.length ? [action('No history found in this view', 'none',
-          forFork ? 'Try all directories or enter a known active conversation ID.'
-            : 'Try all directories, archived histories, or enter a known conversation ID.')] : []),
+          'Try all directories, archived histories, or enter a known conversation ID.')] : []),
         ...(nextCursor ? [action('$(history) Load older conversations', 'more')] : []),
         ...(record.cwd ? [action(allDirectories ? '$(folder) Show this session’s directory only' : '$(folder) Show all directories', 'directories')] : []),
-        ...(!forFork ? [action(archived ? '$(history) Show active histories' : '$(archive) Show archived histories', 'archive')] : []),
+        action(archived ? '$(history) Show active histories' : '$(archive) Show archived histories', 'archive'),
         action('$(edit) Enter conversation ID manually…', 'manual')
       ];
     };
@@ -96,10 +94,9 @@ async function chooseCodexConversation(ui, agents, record, hostLabel, { forFork 
     render(); picker.show(); void load(true);
   });
   if (!selection?.manual) return selection;
-  const id = await ui.showInputBox({ title: forFork ? 'Choose Codex Conversation to Fork' : 'Bind Original Codex Conversation',
-    prompt: forFork ? 'Enter the original active conversation UUID to fork.'
-      : 'Enter the original conversation UUID. It will be verified before linking.', value: record.agent?.sessionId || '',
-    validateInput: value => UUID.test(value.trim()) ? null : 'Enter a conversation UUID, not a name or --last' });
+  const id = await ui.showInputBox({ title: 'Bind Original Codex Conversation',
+    prompt: 'Enter the original conversation UUID. It will be verified before linking.', value: record.agent?.sessionId || '',
+    validateInput: value => !value.trim() || UUID.test(value.trim()) ? null : 'Enter a conversation UUID, not a name or --last' });
   return id?.trim() ? { sessionId: id.trim(), archived: false } : undefined;
 }
 

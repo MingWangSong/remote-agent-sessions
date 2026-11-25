@@ -7,7 +7,7 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { execFile, spawn } = require('node:child_process');
 const { promisify } = require('node:util');
-const { AgentSessions } = require('../src/agentSessions');
+const { AgentSessions, agentCommand } = require('../src/agentSessions');
 const { SessionManager } = require('../src/sessionManager');
 const { SessionStore } = require('../src/store');
 const { TmuxClient } = require('../src/tmux');
@@ -38,6 +38,16 @@ if(type==='codex'&&args[0]==='app-server'){
  if(args.includes('--fork-session')){sourceId=args[args.indexOf('--resume')+1];if(sourceId===id||!fs.existsSync(path.join(dir,sourceId+'.jsonl')))throw Error('missing fork source');if(fs.existsSync(transcript))throw Error('fork id already exists');mode='fork';}
  if(!fresh&&!fs.existsSync(transcript))throw Error('missing original history');fs.writeFileSync(transcript,JSON.stringify({sessionId:id,name}));
  }else{id=args[1];const d=load();if(!d[id]||d[id].archived)throw Error('missing original thread');name=d[id].name;sourceId=d[id].sourceId;mode='resume';if(!args.includes('--cd'))process.chdir(d[id].cwd);}
+ process.title=type;
+ if(type==='claude'&&process.platform==='linux'){
+ const dir=path.join(process.env.CLAUDE_CONFIG_DIR,'sessions');fs.mkdirSync(dir,{recursive:true});
+ const procStart=fs.readFileSync('/proc/self/stat','utf8').split(') ').at(-1).trim().split(' ')[19];
+ fs.writeFileSync(path.join(dir,process.pid+'.json'),JSON.stringify({kind:'interactive',sessionId:id,pid:process.pid,procStart,cwd:process.cwd()}));
+ }else if(type==='codex'){
+ const dir=path.join(process.env.CODEX_HOME,'sessions');fs.mkdirSync(dir,{recursive:true});
+ const rollout=path.join(dir,'rollout-fixture-'+id+'.jsonl');
+ fs.writeFileSync(rollout,JSON.stringify({type:'session_meta',payload:{id,source:'cli'}})+'\\n');fs.openSync(rollout,'a');
+ }
  fs.appendFileSync(path.join(root,'launches.jsonl'),JSON.stringify({type,id,name,mode,sourceId,cwd:args.includes('--cd')?args[args.indexOf('--cd')+1]:process.cwd()})+'\\n');console.log('FIXTURE_AGENT_READY');setInterval(()=>{const p=path.join(root,'next-cwd');if(fs.existsSync(p)){process.chdir(fs.readFileSync(p,'utf8'));fs.writeFileSync(path.join(root,'cwd-ready'),process.cwd());}},50);
 }
 `;
@@ -227,22 +237,36 @@ for (const type of ['claude', 'codex']) test(`Fork ${type}: start a new tmux and
   assert.ok(await f.tmux.exists(parent.tmuxSession));
 });
 
-test('an unlinked tmux session can fork an explicitly selected Codex history without renaming the source', async t => {
+for (const type of ['claude', 'codex']) test(`Fork discovers the exact unlinked ${type} pane in a shared directory`, { skip: process.platform !== 'linux' }, async t => {
   const f = await fixture(t);
   const manager = f.manager();
   const root = await fs.realpath(f.dir);
-  const history = await f.agents.prepare('codex', 'Original title', root);
-  await f.tmux.create('Legacy parent', root);
+  const histories = [];
+  for (const name of ['Original title', 'Other title']) histories.push(await f.agents.prepare(type, name, root));
+  for (const [index, history] of histories.entries()) {
+    const target = index ? 'Another Agent' : 'Legacy parent';
+    const pane = await f.tmux.create(target, root);
+    const start = agentCommand(history, true);
+    await f.tmux.sendCommand(target, pane, start);
+    await f.waitLaunches(index + 1);
+  }
   await manager.refresh(false);
   const legacy = manager.entries.find(entry => entry.tmuxSession === 'Legacy parent');
-  const parent = await manager.adopt(legacy, legacy.title);
-  const entry = manager.entries.find(item => item.id === parent.id);
-  const child = await manager.fork(entry, 'Legacy fork', undefined, { type: 'codex', sessionId: history.sessionId });
-  const [launch] = await f.waitLaunches(1);
-  assert.equal(launch.sourceId, history.sessionId);
+  assert.ok(!legacy.managed);
+  const child = await manager.fork(legacy, 'Legacy fork');
+  const launch = (await f.waitLaunches(3))[2];
+  assert.equal(launch.sourceId, histories[0].sessionId);
   assert.equal(launch.id, child.agent.sessionId);
+  assert.notEqual(launch.id, histories[1].sessionId);
+  const parent = (await f.store.load()).find(record => record.tmuxSession === legacy.tmuxSession);
   assert.equal(child.forkParentId, parent.id);
-  const histories = JSON.parse(await fs.readFile(path.join(root, 'threads.json'), 'utf8'));
-  assert.equal(histories[history.sessionId].name, 'Original title');
-  assert.equal((await f.store.load()).find(record => record.id === parent.id).agent, null);
+  assert.equal(parent.agent, null);
+  assert.ok(await f.tmux.exists(legacy.tmuxSession));
+  if (type === 'claude') {
+    await fs.rm(path.join(root, 'claude', 'projects', 'fixture', histories[0].sessionId + '.jsonl'));
+    const parentEntry = manager.entries.find(entry => entry.id === parent.id);
+    await assert.rejects(manager.fork(parentEntry, 'Missing history'), /history was not found/);
+    assert.equal((await f.store.load()).length, 2);
+    assert.equal(await f.tmux.exists('Missing history'), false);
+  }
 });

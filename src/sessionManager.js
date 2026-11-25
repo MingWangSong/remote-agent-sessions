@@ -73,6 +73,7 @@ function preserveCommands(windows, previous, byIndex = false) {
     const old = byIndex ? previous[wi] : previous.find((w) => w.id ? w.id === window.id : w.name === window.name);
     const oldPanes = old?.panes || (old ? [{ command: old.command }] : []);
     for (const [pi, pane] of window.panes.entries()) {
+      delete pane.pid; // Process IDs belong to the live tmux server, not the recovery record.
       const oldPane = byIndex || !oldPanes[0]?.id ? oldPanes[pi] : oldPanes.find((p) => p.id === pane.id);
       pane.command = oldPane?.command || null;
       if (oldPane?.agent) pane.agent = structuredClone(oldPane.agent);
@@ -209,18 +210,23 @@ class SessionManager {
     await this.restore(record, true);
     return this.records.find((r) => r.id === record.id);
   }
-  async fork(input, title, host, conversation) {
+  async fork(input, title, host, report = () => {}) {
     if (!this.agents) throw new Error('Agent forking is unavailable for this host');
-    const record = find(await this.store.load(), input);
-    const live = (await this.tmux.list()).find(session => session.owner === record.id || session.name === record.tmuxSession);
-    if (!owns(record, live) || !sameLiveIdentity(input.live, live))
+    checkTmuxName(title);
+    let record = input.managed === false ? null : find(await this.store.load(), input);
+    const live = (await this.tmux.list()).find(session =>
+      (record && session.owner === record.id) || session.name === (record?.tmuxSession || input.tmuxSession));
+    if (!sameLiveIdentity(input.live, live) || (record ? !owns(record, live) : live.owner !== input.live?.owner))
       throw new Error('The parent tmux session changed. Refresh and select it again.');
     const windows = live.snapshotWindows || await this.tmux.listWindows(live.name);
     const { pane, cwd } = forkPane(windows);
     const currentType = commandType(pane?.currentCommand || live.currentCommand);
-    const source = conversation ? { ...conversation, recoveryVersion: 1 } : forkAgentSource(record, live, windows);
-    if (!canForkAgent(source) || (currentType && currentType !== source.type))
-      throw new Error('Select the linked Agent pane in the parent session, or use Link Agent History first.');
+    const saved = forkAgentSource(record, live, windows);
+    const source = await this.agents.activeConversation(currentType || saved?.type, pane?.pid) || saved;
+    if (!source) throw new Error('Could not identify the original conversation. Leave the Agent open in the active tmux pane and try again after the conversation has been saved.');
+    if (source.type === 'claude') await this.agents.verify({ ...source, name: title });
+    if (!record) record = await this.adopt({ ...input, live }, input.tmuxSession);
+    report('Forking the conversation and preparing tmux');
     return this.create({ title, host, cwd: cwd || record.cwd,
       agent: { type: source.type }, forkParentId: record.id }, source);
   }

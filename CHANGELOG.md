@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.4.4 — 2026-11-25
+
+- Fork Codex and Claude conversations by entering only a new session name. Discover the exact original conversation from the active tmux pane when available, including for older unlinked sessions on Linux.
+
 ## 3.4.3 — 2026-11-25
 
 - Keep nested session menus in place during unchanged SSH refreshes and separate category actions from session actions.

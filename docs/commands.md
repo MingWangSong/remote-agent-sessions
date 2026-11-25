@@ -23,7 +23,7 @@ This index covers all **44 contributed commands**. Names match the current Engli
 | New Category | `remoteAgentSessions.newCategory` | Add a collapsible folder under Running for the selected host. |
 | Rename Category | `remoteAgentSessions.renameCategory` | Rename a Running folder. |
 | Remove Category | `remoteAgentSessions.removeCategory` | Move its sessions out of the category and remove the folder. |
-| Fork Session | `remoteAgentSessions.fork` | Branch a live Codex or Claude conversation and open the new tmux session beneath its parent. If the parent is unlinked, choose the original conversation in the fork flow. |
+| Fork Session | `remoteAgentSessions.fork` | Enter a name to branch the active Codex or Claude conversation and open the new tmux session beneath its parent. |
 | Attach Session | `remoteAgentSessions.attach` | Connect to a live session, reusing its open terminal when available. |
 | Rename Session | `remoteAgentSessions.rename` | Rename a live/recoverable session, checking its identity. |
 | Session Details | `remoteAgentSessions.showDetails` | Inspect host, saved directory, layout, Agent binding and recovery details. |

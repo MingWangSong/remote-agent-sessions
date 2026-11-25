@@ -1,12 +1,15 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const readline = require('node:readline');
 const { shellQuote } = require('./ssh');
 
 const AGENT_PATH = 'PATH="$PATH:$HOME/.local/bin:$HOME/.npm-global/bin:/opt/homebrew/bin:/usr/local/bin"; export PATH; ';
 const AGENT_EXEC = AGENT_PATH + 'exec "$@"';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const activeAgentSource = fs.readFileSync(path.join(__dirname, 'activeAgent.py')).toString('base64');
 function builtinAgent(type) { return type === 'claude' || type === 'codex'; }
 function validateBinding(agent) {
   if (!builtinAgent(agent?.type) || !UUID.test(agent.sessionId || '') ||
@@ -150,6 +153,17 @@ class AgentSessions {
     // disk, retry only the same planned ID from the same verified source.
     await this.verify({ type: agent.type, name: agent.name, sessionId: agent.forkSourceId });
     return agent;
+  }
+  async activeConversation(type, panePid) {
+    if (!builtinAgent(type) || !Number.isSafeInteger(panePid) || panePid <= 1) return;
+    const command = 'if test -d /proc && command -v python3 >/dev/null 2>&1; then exec python3 "$@"; else printf "[]"; fi';
+    const script = `import base64;exec(base64.b64decode('${activeAgentSource}'))`;
+    const result = await this.transport.run('sh', ['-c', command, 'tmuxdock-agent', '-c', script, type, String(panePid)], { timeout: 8000 });
+    const ids = JSON.parse(result.stdout);
+    if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !UUID.test(id)))
+      throw new Error('The remote Agent returned an invalid conversation ID.');
+    if (ids.length > 1) throw new Error('Several Agent conversations are active in this pane. Focus the parent conversation and try again.');
+    if (ids.length) return { type, sessionId: ids[0], recoveryVersion: 1 };
   }
   async claudeTranscript(sessionId) {
     const script = 'root=${CLAUDE_CONFIG_DIR:-$HOME/.claude}; ' +

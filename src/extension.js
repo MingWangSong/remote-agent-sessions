@@ -6,7 +6,7 @@ const vscode = require('vscode');
 const { parseBackup, mergeRecords } = require('./backup');
 const { HostRegistry } = require('./hostRegistry');
 const { basenameForTitle } = require('./model');
-const { GitInspector, SessionManager, checkTmuxName, owns, forkAgentSource } = require('./sessionManager');
+const { GitInspector, SessionManager, checkTmuxName, owns } = require('./sessionManager');
 const { SessionStore, validateRecords } = require('./store');
 const { SshClient, remoteCommand } = require('./ssh');
 const { TmuxClient } = require('./tmux');
@@ -706,28 +706,13 @@ async function activate(context) {
   command('remoteAgentSessions.fork', async (item, report) => {
     const resolved = await resolveSession(item, provider, forkCandidate);
     if (!resolved) return;
-    const { controller } = resolved;
-    let { entry } = resolved;
+    const { controller, entry } = resolved;
     const name = await vscode.window.showInputBox({
       title: `Fork ${entry.title}`, value: entry.tmuxSession.slice(0, 75) + '-fork', validateInput: validateTmuxNameInput
     });
     if (name === undefined) return;
-    let conversation;
-    if (!forkAgentSource(entry.record, entry.live)) {
-      // Select the exact history before adopting an unmanaged tmux session.
-      // Cancelling the picker leaves the session and its metadata untouched.
-      conversation = await chooseOriginalConversation(controller, entry.record || entry, sessionType(entry), true);
-      if (!conversation) return;
-      if (!entry.record) {
-        report('Registering the parent tmux session');
-        const parent = await controller.manager.adopt(entry, entry.tmuxSession);
-        entry = controller.manager.entries.find(candidate => candidate.id === parent.id);
-        if (entry?.status !== 'live') throw new Error('The parent session is no longer running');
-        provider.changed();
-      }
-    }
-    report('Forking the linked conversation and preparing tmux');
-    const record = await controller.manager.fork(entry, name.trim(), controller.host.id, conversation);
+    report('Identifying the original Agent conversation');
+    const record = await controller.manager.fork(entry, name.trim(), controller.host.id, report);
     provider.changed();
     report('Opening the forked session');
     await attachEntry(controller, controller.manager.entries.find(candidate => candidate.id === record.id));
@@ -1135,21 +1120,20 @@ async function chooseRestoreCommandPolicy(record, configuration) {
   return answer === 'Restore and Run Commands' ? true : answer === 'Restore Shells Only' ? false : undefined;
 }
 
-async function chooseOriginalConversation(controller, record, preferredType = record.agent?.type, forFork = false) {
+async function chooseOriginalConversation(controller, record, preferredType = record.agent?.type) {
   const type = builtinAgent(preferredType) ? preferredType
     : (await vscode.window.showQuickPick([{ label: 'Claude', type: 'claude' }, { label: 'Codex', type: 'codex' }],
       { title: 'Agent type for the original conversation' }))?.type;
   if (!type) return false;
   if (type === 'codex') {
-    const selected = await chooseCodexConversation(vscode.window, controller.manager.agents, record, controller.host.label, { forFork });
+    const selected = await chooseCodexConversation(vscode.window, controller.manager.agents, record, controller.host.label);
     return selected && { type, ...selected };
   }
   const id = await vscode.window.showInputBox({
-    title: forFork ? 'Choose Claude Conversation to Fork' : `Bind Original ${type === 'codex' ? 'Codex' : 'Claude'} Conversation`,
-    prompt: forFork ? 'Paste the original conversation UUID. TmuxDock will fork this exact conversation.'
-      : 'Paste the original conversation UUID from the Agent CLI. The ID is verified before binding; a new conversation will not be created.',
+    title: 'Bind Original Claude Conversation',
+    prompt: 'Paste the original conversation UUID from Claude. The ID is verified before linking.',
     value: record.agent?.sessionId || '',
-    validateInput: value => UUID.test(value.trim()) ? null : 'Enter a conversation UUID, not a name or --last'
+    validateInput: value => !value.trim() || UUID.test(value.trim()) ? null : 'Enter a conversation UUID, not a name or --last'
   });
   return id && { type, sessionId: id.trim() };
 }
