@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.4.1 — 2026-11-25
+
+- Keep the latest Running category layout when VS Code delivers an older storage update. Show sessions under Running if their saved category is missing.
+
 ## 3.4.0 — 2026-11-25
 
 - Add collapsible categories under Running. Drag ordinary sessions into categories or existing parent sessions. Forked sessions follow their original parent.

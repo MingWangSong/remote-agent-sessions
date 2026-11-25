@@ -13,18 +13,27 @@ class SessionCategories {
   constructor(storage) {
     this.storage = storage;
     this.pending = Promise.resolve();
+    this.committed = new Map();
   }
 
   get(hostId) {
-    return { categories: [], membership: {}, parents: {}, ...this.storage.get(KEY, {})[hostId] };
+    const saved = this.storage.get(KEY, {})[hostId];
+    const local = this.committed.get(hostId);
+    // VS Code delivers whole-extension storage snapshots asynchronously.
+    // Ignore an older snapshot arriving after a successful category edit.
+    const latest = local && local.revision > (saved?.revision || 0) ? local : saved;
+    return { categories: [], membership: {}, parents: {}, ...latest };
   }
 
   update(hostId, change) {
     const result = this.pending.then(async () => {
-      const hosts = this.storage.get(KEY, {});
+      const hosts = { ...this.storage.get(KEY, {}) };
+      for (const id of this.committed.keys()) hosts[id] = this.get(id);
       const state = structuredClone(this.get(hostId));
       change(state);
+      state.revision = Math.max(Date.now(), (state.revision || 0) + 1);
       await this.storage.update(KEY, { ...hosts, [hostId]: state });
+      this.committed.set(hostId, state);
     });
     this.pending = result.catch(() => {});
     return result;
@@ -77,6 +86,7 @@ function runningTree(entries, records, state) {
   const liveByKey = new Map(entries.flatMap(entry => [[sessionKey(entry), entry],
     ...(entry.live ? [[sessionKey({ live: entry.live }), entry]] : [])]));
   const recordsById = new Map(records.map(record => [record.id, record]));
+  const categoryIds = new Set(state.categories.map(category => category.id));
   const children = new Map();
   const locations = new Map();
   for (const entry of entries) {
@@ -100,7 +110,7 @@ function runningTree(entries, records, state) {
         (recordsById.has(manual) ? manual : undefined);
     }
     if (seen.has(id)) parent = undefined;
-    const location = parent ? { parent } : { categoryId: categoryId || null };
+    const location = parent ? { parent } : { categoryId: categoryIds.has(categoryId) ? categoryId : null };
     locations.set(entry.id, location);
     const key = parent ? `parent:${parent.id}` : `category:${location.categoryId || ''}`;
     if (!children.has(key)) children.set(key, []);
