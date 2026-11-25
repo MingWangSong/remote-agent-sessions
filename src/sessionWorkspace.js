@@ -230,6 +230,7 @@ class SessionWorkspace {
     this.setEnabled();
   }
   setEnabled() {
+    const wasEnabled = this.enabled;
     this.enabled = vscode.workspace
       .getConfiguration("remoteAgentSessions")
       .get("sessionFilesEnabled", true);
@@ -244,8 +245,10 @@ class SessionWorkspace {
       for (const s of this.services.values()) s.dispose();
       this.services.clear();
     }
-    if (this.enabled)
+    if (this.enabled) {
+      if (wasEnabled === false) this.previews.restoreBrowserLinks().catch(() => {});
       for (const doc of vscode.workspace.textDocuments) this.watchDocument(doc);
+    }
     this.updateTitle();
     this.treeEmitter.fire();
   }

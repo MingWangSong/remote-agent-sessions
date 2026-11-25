@@ -71,7 +71,7 @@ Native Save, session drag ordering, tree drag-to-move and desktop drag-to-upload
 
 HTML's **Refresh** button reloads that preview. Every explicit preview gets its own tab in the active editor group; the extension never creates an automatic split. Transfers expose progress/cancellation; folder uploads never merge an existing target, and regular-file replacements ask first.
 
-**Browser** launches the system default browser. Its URL remains usable after closing the VS Code preview tab, while this VS Code window and Session Files remain enabled and the directory stays linked. Refresh the external browser to read updated remote content.
+**Browser** launches the system default browser. Its URL remains usable after closing the VS Code preview tab. TmuxDock restores the same local address when the same VS Code workspace reopens or reloads, provided Session Files is enabled, the directory is still linked, and the port is available. Refresh the browser to read updated remote content.
 
 ## Backup and migration
 

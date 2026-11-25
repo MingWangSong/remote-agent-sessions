@@ -148,4 +148,4 @@ class SessionFileRoots {
     return roots;
   }
 }
-module.exports = { SessionFileRoots, validRoot };
+module.exports = { SessionFileRoots, validRoot, hostKey };

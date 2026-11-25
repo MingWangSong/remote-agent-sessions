@@ -350,10 +350,17 @@ class MultiHostTreeProvider {
     this.changeEmitter.fire(undefined);
   }
 
-  async reloadHosts() {
-    this.controllers = this.registry.list().map((host) => new HostController(host, this.context, this.configuration));
+  async reloadHosts(beforeRefresh) {
+    const controllers = this.registry.list().map((host) => new HostController(host, this.context, this.configuration));
+    this.controllers = controllers;
+    this.reloading = true;
     this.changed();
-    await this.refresh(undefined, false);
+    try {
+      if (beforeRefresh) await beforeRefresh();
+      await this.refresh(undefined, false);
+    } finally {
+      if (this.controllers === controllers) this.reloading = false;
+    }
   }
 
   async refresh(controller, snapshot = true) {
@@ -881,7 +888,7 @@ async function activate(context) {
     if (destination.scheme === 'file') await require('node:fs/promises').chmod(destination.fsPath, 0o600);
   });
 
-  await provider.reloadHosts();
+  await provider.reloadHosts(() => sessionWorkspace.previews.restoreBrowserLinks({ loadRecords: true }));
   controllersReady = true;
   sessionWorkspace.restore();
   for (const terminal of vscode.window.terminals) reconnectTerminal(terminal).catch(() => {});

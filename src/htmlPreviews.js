@@ -3,8 +3,15 @@ const vscode = require("vscode");
 const path = require("node:path").posix;
 const { randomBytes } = require("node:crypto");
 const { relative } = require("./remoteFiles");
-const { PreviewServer } = require("./previewService");
+const { PreviewServer, validPreviewAddress } = require("./previewService");
+const { hostKey } = require("./sessionFileRoots");
 const { installPreviewCopy } = require("./previewClipboard");
+const { setTimeout: delay } = require("node:timers/promises");
+const BROWSER_LINKS = "workspace.browserPreviews.v1";
+function sameBrowserResource(a, b) {
+  return a && a.hostId === b.hostId && a.sessionId === b.sessionId &&
+    a.root === b.root && a.file === b.file;
+}
 const escape = (value) =>
   String(value).replace(
     /[&<>"']/g,
@@ -28,6 +35,14 @@ class HtmlPreviews {
     this.workspace = workspace;
     this.items = new Set();
     this.externalServers = new Map();
+    this.browserStorage = workspace.context.workspaceState;
+    const saved = this.browserStorage.get(BROWSER_LINKS, []);
+    this.browserLinks = new Map((Array.isArray(saved) ? saved : [])
+      .filter(link => validPreviewAddress(link) && typeof link.target === "string" && typeof link.hostId === "string" &&
+        typeof link.sessionId === "string" && typeof link.root === "string" && typeof link.file === "string")
+      .map(link => [link.host, link]));
+    this.pendingBrowserSave = Promise.resolve();
+    this.launching = new Map();
     this.opening = Promise.resolve();
     workspace.context.subscriptions.push(
       vscode.window.registerWebviewPanelSerializer("tmuxdock.preview", {
@@ -265,11 +280,68 @@ window.addEventListener('message',e=>{
       this.empty(item, "Session Files is disabled.");
     }
   }
+  saveBrowserLinks() {
+    const update = this.pendingBrowserSave.then(() =>
+      this.browserStorage.update(BROWSER_LINKS, [...this.browserLinks.values()]));
+    this.pendingBrowserSave = update.catch(() => {});
+    return update;
+  }
+  browserTarget(link) {
+    const controller = this.workspace.provider.controllers.find(c => c.host.id === link.hostId);
+    if (!controller || link.target !== hostKey(controller.host)) return;
+    const target = this.workspace.fileRoots.find(controller, link.sessionId);
+    if (target?.root !== link.root) return;
+    return target;
+  }
+  async restoreBrowserLinks({ loadRecords = false } = {}) {
+    if (this.disposed || !this.workspace.enabled || !vscode.workspace.isTrusted || !this.browserLinks.size) return;
+    if (loadRecords) {
+      const hosts = new Set([...this.browserLinks.values()].map(link => link.hostId));
+      // Start the local listeners before the initial SSH inventory. Managed
+      // links can be verified from the saved session records even while offline.
+      await Promise.allSettled(this.workspace.provider.controllers
+        .filter(controller => hosts.has(controller.host.id))
+        .map(controller => controller.manager.reloadRecords()));
+    }
+    await Promise.allSettled([...this.browserLinks.values()].map(link => this.restoreBrowserLink(link)));
+  }
+  async restoreBrowserLink(link) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      if (this.disposed || !this.workspace.enabled || this.browserLinks.get(link.host) !== link ||
+          [...this.externalServers.keys()].some(server => server.host === link.host)) return;
+      const context = this.browserTarget(link);
+      if (!context) return;
+      validateResource({ authority: link.hostId, path: link.file }, context);
+      const server = new PreviewServer(this.workspace.service(context.controller), context.root, { watch: false });
+      server.browser = true;
+      try {
+        await server.start(link.file, link);
+        if (this.disposed || !this.workspace.enabled || this.browserLinks.get(link.host) !== link || !this.browserTarget(link)) {
+          server.dispose();
+          return;
+        }
+        this.externalServers.set(server, link);
+        return;
+      } catch (error) {
+        server.dispose();
+        if (error.code !== "EADDRINUSE" || attempt === 4) return;
+        // The previous window can still be releasing its listener during Reload.
+        await delay(125 * (attempt + 1));
+      }
+    }
+  }
   reconcile() {
+    if (this.workspace.provider.reloading) return;
+    let revoked = false;
+    for (const [host, link] of this.browserLinks) {
+      if (!this.browserTarget(link)) {
+        this.browserLinks.delete(host);
+        revoked = true;
+      }
+    }
+    if (revoked) this.saveBrowserLinks().catch(() => {});
     for (const [server, state] of this.externalServers) {
-      const controller = this.workspace.provider.controllers.find(c => c.host.id === state.hostId);
-      const target = this.workspace.fileRoots.find(controller, state.sessionId);
-      if (!target || target.root !== state.root) {
+      if (!this.browserTarget(state)) {
         server.dispose();
         this.externalServers.delete(server);
       }
@@ -304,14 +376,13 @@ window.addEventListener('message',e=>{
   async openResourceInBrowser(resource, context) {
     if (this.disposed) throw new Error("HTML previews are closed");
     validateResource(resource, context);
-    const matches = state => state?.hostId === resource.authority && state.sessionId === context.entry.id &&
-      state.root === context.root && state.file === resource.path;
-    const preview = [...this.items].find(item => !item.closed && item.server && matches(item.state));
-    if (preview) return this.openBrowser(preview);
-    for (const [server, state] of this.externalServers)
-      if (!server.closed && matches(state)) return this.openBrowser({ server, state, context });
-    const server = new PreviewServer(this.workspace.service(context.controller), context.root);
     const state = { hostId: resource.authority, sessionId: context.entry.id, root: context.root, file: resource.path };
+    const preview = [...this.items].find(item => !item.closed && item.server && sameBrowserResource(item.state, state));
+    if (preview) return this.openBrowser(preview);
+    for (const [server, link] of this.externalServers)
+      if (!server.closed && sameBrowserResource(link, state) && link.target === hostKey(context.controller.host))
+        return this.openBrowser({ server, state: link, context });
+    const server = new PreviewServer(this.workspace.service(context.controller), context.root, { watch: false });
     try {
       await server.start(resource.path);
       if (this.disposed || this.workspace.disposed || this.workspace.enabled === false)
@@ -328,18 +399,38 @@ window.addEventListener('message',e=>{
       throw new Error("Open an HTML preview before opening it in your browser");
     if (!vscode.workspace.isTrusted)
       throw new Error("HTML preview requires a trusted workspace");
+    for (const [server, state] of this.externalServers) {
+      if (!server.closed && sameBrowserResource(state, item.state) && state.target === hostKey(item.context.controller.host)) {
+        item = { ...item, server, state };
+        break;
+      }
+    }
     const server = item.server;
+    if (this.launching.has(server)) return this.launching.get(server);
+    const launch = this.launchBrowser(item).finally(() => this.launching.delete(server));
+    this.launching.set(server, launch);
+    return launch;
+  }
+  async launchBrowser(item, openExternal = uri => vscode.env.openExternal(uri)) {
+    const { server } = item;
     const retained = this.externalServers.has(server);
-    // Keep the scoped localhost endpoint usable after its editor tab closes.
-    // No remote listener or downloaded single-file copy is needed.
-    this.externalServers.set(server, { ...item.state });
+    const link = { ...item.state, host: server.host, port: server.port, target: hostKey(item.context.controller.host) };
+    if (!validPreviewAddress(link)) throw new Error("Invalid preview address");
+    server.browser = true;
+    this.externalServers.set(server, link);
+    if (!retained) this.browserLinks.set(link.host, link);
     try {
-      const opened = await vscode.env.openExternal(vscode.Uri.parse(server.url(item.state.file)));
+      // Save before handing the URL to the OS, so a reload can bind it again.
+      if (!retained) await this.saveBrowserLinks();
+      if (this.disposed || this.workspace.enabled === false) throw new Error("Session Files is closed");
+      const opened = await openExternal(vscode.Uri.parse(server.url(item.state.file)));
       if (!opened) throw new Error("Your default browser could not be opened. Try Browser again");
       return opened;
     } catch (error) {
       if (!retained) {
         this.externalServers.delete(server);
+        this.browserLinks.delete(link.host);
+        await this.saveBrowserLinks().catch(() => {});
         if (item.closed || item.server !== server) server.dispose();
       }
       throw error;

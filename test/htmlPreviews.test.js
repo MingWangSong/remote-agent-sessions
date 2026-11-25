@@ -5,8 +5,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const { setImmediate: tick } = require('node:timers/promises');
 const { EventEmitter } = require('node:events');
+const http = require('node:http');
+const previewHost = 'a'.repeat(40) + '.localhost';
 
-function fixture() {
+function fixture(storage, host = { id: 'host', sshHost: 'test-ssh' }) {
   const panels = [];
   const external = [];
   const vscode = {
@@ -40,19 +42,24 @@ function fixture() {
   vm.runInThisContext('(function(require,module,exports){' + fs.readFileSync(filename, 'utf8') + '\n})', { filename })(
     name => name === 'vscode' ? vscode : name.startsWith('./') ? require('../src/' + name.slice(2)) : require(name), module, module.exports,
   );
-  const context = { root: '/work', controller: { host: { id: 'host' } }, entry: { id: 'session' } };
+  const context = { root: '/work', controller: { host }, entry: { id: 'session' } };
   const remoteFiles = new EventEmitter();
   remoteFiles.watch = () => ({ dispose() {} });
   remoteFiles.chunk = async (file, offset, limit) => {
     const data = Buffer.from('selected:' + file);
     return { type: 'file', size: data.length, signature: file, data: data.subarray(offset, offset + limit) };
   };
-  const workspace = { context: { subscriptions: [] }, provider: { controllers: [context.controller] },
+  if (!storage) {
+    let data;
+    storage = { get: (_key, fallback) => data ?? fallback, update: async (_key, value) => { data = structuredClone(value); } };
+  }
+  const workspace = { context: { subscriptions: [], workspaceState: storage }, enabled: true,
+    provider: { controllers: [context.controller] },
     fileRoots: { find: () => context }, service: () => remoteFiles };
   const previews = new module.exports.HtmlPreviews(workspace);
   previews.load = async item => previews.empty(item, 'Loading remote preview');
   const open = name => previews.open({ authority: 'host', path: '/work/' + name }, context);
-  return { previews, panels, open, external, vscode, workspace, context };
+  return { previews, panels, open, external, vscode, workspace, context, storage, remoteFiles };
 }
 
 async function loaded(f, name = '资料 #1.html') {
@@ -61,7 +68,9 @@ async function loaded(f, name = '资料 #1.html') {
   f.panels.at(-1).render();
   const item = await opening;
   const server = new EventEmitter();
-  server.url = file => 'http://fixture.localhost:1234/' + file.slice('/work/'.length).split('/').map(encodeURIComponent).join('/');
+  server.host = previewHost;
+  server.port = 1234;
+  server.url = file => 'http://' + previewHost + ':1234/' + file.slice('/work/'.length).split('/').map(encodeURIComponent).join('/');
   server.dispose = () => { server.disposed = true; server.removeAllListeners(); };
   item.server = server;
   item.url = server.url(item.state.file);
@@ -102,7 +111,7 @@ test('disposing previews releases a pending renderer confirmation without creati
 test('Browser button uses the system opener with an encoded localhost URL and keeps that endpoint after closing its editor', async () => {
   const f = fixture(), item = await loaded(f), server = item.server;
   await item.panel.receive({ type: 'browser' });
-  assert.deepEqual(f.external, ['http://fixture.localhost:1234/%E8%B5%84%E6%96%99%20%231.html']);
+  assert.deepEqual(f.external, ['http://' + previewHost + ':1234/%E8%B5%84%E6%96%99%20%231.html']);
   assert.equal(f.panels.length, 1, 'Browser must not create another VS Code tab');
   assert.equal(f.previews.externalServers.size, 1);
   item.panel.dispose();
@@ -158,18 +167,68 @@ test('a tree selection opens its own live HTTP endpoint without creating or choo
   assert.equal(f.panels.length, 1, 'only the pre-existing unrelated tab remains');
   const target = new URL(f.external.at(-1));
   assert.equal(decodeURIComponent(target.pathname), '/selected #1.html');
-  const body = await new Promise((resolve, reject) => {
-    require('node:http').get({ hostname: '127.0.0.1', port: target.port, path: target.pathname, headers: { Host: target.host } }, res => {
-      const chunks = [];
-      res.on('data', chunk => chunks.push(chunk));
-      res.on('end', () => resolve(Buffer.concat(chunks).toString()));
-      res.on('error', reject);
-    }).on('error', reject);
-  });
-  assert.equal(body, 'selected:/work/selected #1.html');
+  assert.equal((await request(target)).body, 'selected:/work/selected #1.html');
   await f.previews.openResourceInBrowser(selected, f.context);
   assert.equal(f.external.at(-1), target.toString(), 'repeat clicks reuse the endpoint');
   assert.equal(f.previews.externalServers.size, 1);
+});
+
+function request(url, headers = {}) {
+  const target = new URL(url);
+  return new Promise((resolve, reject) => {
+    http.get({
+      hostname: '127.0.0.1', port: target.port, path: target.pathname,
+      agent: false, headers: { Host: target.host, ...headers },
+    }, res => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', chunk => { body += chunk; });
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body }));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+test('external browser restores the exact URL, relative assets and document retry after extension restart', async t => {
+  const first = fixture();
+  t.after(() => first.previews.dispose());
+  await first.previews.openResourceInBrowser({ authority: 'host', path: '/work/docs/report.html' }, first.context);
+  const url = first.external[0];
+  assert.equal((await request(url)).body, 'selected:/work/docs/report.html');
+  first.previews.dispose();
+  const second = fixture(first.storage);
+  t.after(() => second.previews.dispose());
+  second.remoteFiles.watch = () => assert.fail('Restoring an external URL should not start remote watches');
+  await second.previews.restoreBrowserLinks();
+  assert.deepEqual(second.external, [], 'the existing browser tab is reused without launching Chrome');
+  assert.equal(second.panels.length, 0);
+  assert.equal((await request(url)).body, 'selected:/work/docs/report.html');
+  assert.equal((await request(new URL('style.css', url))).body, 'selected:/work/docs/style.css');
+  assert.equal((await request(url, { Host: 'localhost' })).status, 403);
+  const read = second.remoteFiles.chunk;
+  second.remoteFiles.chunk = async () => { throw Object.assign(new Error('offline'), { code: 'RemoteFileTimeout' }); };
+  const response = await request(url, { 'Sec-Fetch-Dest': 'document' });
+  assert.equal(response.status, 503);
+  assert.equal(response.headers['retry-after'], '3');
+  assert.match(response.body, /http-equiv="refresh"/);
+  second.remoteFiles.chunk = read;
+  assert.equal((await request(url)).status, 200);
+  const reopened = await loaded(second, 'docs/report.html');
+  await second.previews.openBrowser(reopened);
+  assert.deepEqual(second.external, [url], 'the toolbar reuses the restored browser address');
+});
+
+test('a changed SSH target cannot restore a previously published browser URL', async t => {
+  const first = fixture();
+  await first.previews.openResourceInBrowser({ authority: 'host', path: '/work/report.html' }, first.context);
+  first.previews.dispose();
+  const changed = fixture(first.storage, { id: 'host', sshHost: 'replacement-ssh' });
+  t.after(() => changed.previews.dispose());
+  await changed.previews.restoreBrowserLinks();
+  assert.equal(changed.previews.externalServers.size, 0);
+  changed.previews.reconcile();
+  await changed.previews.pendingBrowserSave;
+  assert.deepEqual(first.storage.get(), []);
 });
 
 test('tree browser requests reject wrong hosts, non-HTML files and paths outside the linked root before launching', async t => {

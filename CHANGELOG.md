@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.4.2 — 2026-11-25
+
+- Restore external HTML preview addresses when the same VS Code workspace reloads or reopens, even if the source preview editor was closed. Restore the local listener before checking SSH, and retry browser navigation if the remote connection is temporarily unavailable.
+
 ## 3.4.1 — 2026-11-25
 
 - Keep the latest Running category layout when VS Code delivers an older storage update. Show sessions under Running if their saved category is missing.

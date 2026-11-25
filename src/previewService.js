@@ -52,11 +52,12 @@ function decodePath(raw) {
   return file;
 }
 class PreviewServer extends EventEmitter {
-  constructor(files, root, { clipboard = false } = {}) {
+  constructor(files, root, { clipboard = false, watch = true } = {}) {
     super();
     this.files = files;
     this.root = path.resolve(root);
     this.clipboard = clipboard;
+    this.watch = watch;
     this.host = randomBytes(20).toString("hex") + ".localhost";
     this.subscriptions = new Map();
     this.rendered = new Map();
@@ -81,19 +82,31 @@ class PreviewServer extends EventEmitter {
         this.emit("online");
       }
     };
-    files.on("change", this.changed);
+    if (watch) files.on("change", this.changed);
     files.on("offline", this.offline);
     files.on("online", this.online);
   }
-  async start(file) {
-    if (file) this.subscriptions.set(file, this.files.watch(file, this.root));
-    else await this.files.stat(this.root, this.root);
+  async start(file, address) {
+    if (address) {
+      if (!validPreviewAddress(address)) throw new Error("Invalid saved preview address");
+      this.host = address.host;
+    }
+    if (!file) await this.files.stat(this.root, this.root);
+    else if (this.watch) this.watchFile(file);
     this.server = http.createServer((req, res) =>
       this.serve(req, res).catch((error) => {
-        if (this.unavailable || this.files.isOffline?.(this.root) || error.code === "RemoteFileTimeout")
-          this.emit("interrupted");
+        const interrupted = this.unavailable || this.files.isOffline?.(this.root) || error.code === "RemoteFileTimeout";
+        if (interrupted) this.emit("interrupted");
         if (res.headersSent) {
           res.destroy();
+          return;
+        }
+        if (interrupted && this.browser && req.method === "GET" && req.headers["sec-fetch-dest"] === "document") {
+          res.writeHead(503, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store",
+            "Content-Security-Policy": "default-src 'none'", "Retry-After": "3" });
+          res.end('<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="3">' +
+            '<title>TmuxDock · Reconnecting</title><h1>Reconnecting to the remote host…</h1>' +
+            '<p>This preview will retry automatically.</p>');
           return;
         }
         res.writeHead(error.code === "NotFound" ? 404 : 403, {
@@ -113,7 +126,10 @@ class PreviewServer extends EventEmitter {
     this.server.requestTimeout = 20000;
     await new Promise((resolve, reject) => {
       this.server.once("error", reject);
-      this.server.listen(0, "127.0.0.1", resolve);
+      this.server.listen(address?.port || 0, "127.0.0.1", () => {
+        this.server.off("error", reject);
+        resolve();
+      });
     });
     this.port = this.server.address().port;
     this.origin = `http://${this.host}:${this.port}`;
@@ -122,6 +138,10 @@ class PreviewServer extends EventEmitter {
   url(file) {
     const rel = require("./remoteFiles").relative(this.root, file);
     return this.origin + "/" + rel.split("/").map(encodeURIComponent).join("/");
+  }
+  watchFile(file) {
+    if (this.watch && !this.subscriptions.has(file))
+      this.subscriptions.set(file, this.files.watch(file, this.root));
   }
   async serve(req, res) {
     if (
@@ -144,8 +164,7 @@ class PreviewServer extends EventEmitter {
     }
     let rel = decodePath(req.url).replace(/^\/+/, "");
     let file = path.join(this.root, rel);
-    if (!this.subscriptions.has(file))
-      this.subscriptions.set(file, this.files.watch(file, this.root));
+    this.watchFile(file);
     let prefetched;
     let info;
     if (req.method === "GET" && !req.headers.range && path.extname(file)) {
@@ -158,8 +177,7 @@ class PreviewServer extends EventEmitter {
     }
     if (info.type !== "file" || info.size > 128 * 1024 * 1024)
       throw new Error("Unsupported preview resource");
-    if (!this.subscriptions.has(file))
-      this.subscriptions.set(file, this.files.watch(file, this.root));
+    this.watchFile(file);
     const headers = {
       "Content-Type":
         MIME[path.extname(file).toLowerCase()] || "application/octet-stream",
@@ -213,7 +231,7 @@ class PreviewServer extends EventEmitter {
       return;
     }
     if (firstChunk && info.size === 0) {
-      this.rendered.set(file, info.signature);
+      if (this.watch) this.rendered.set(file, info.signature);
       res.end(firstChunk);
       return;
     }
@@ -246,7 +264,7 @@ class PreviewServer extends EventEmitter {
           }
         });
     }
-    if (!res.destroyed) this.rendered.set(file, info.signature);
+    if (this.watch && !res.destroyed) this.rendered.set(file, info.signature);
     res.end();
   }
   dispose() {
@@ -263,4 +281,8 @@ class PreviewServer extends EventEmitter {
     this.removeAllListeners();
   }
 }
-module.exports = { PreviewServer, decodePath, denied };
+function validPreviewAddress(address) {
+  return /^[a-f0-9]{40}\.localhost$/.test(address?.host || "") &&
+    Number.isInteger(address.port) && address.port >= 1024 && address.port <= 65535;
+}
+module.exports = { PreviewServer, decodePath, denied, validPreviewAddress };

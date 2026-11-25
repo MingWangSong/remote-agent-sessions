@@ -3,6 +3,7 @@ const vscode = require("vscode"),
   fs = require("node:fs/promises"),
   path = require("node:path"),
   assert = require("node:assert/strict");
+const http = require("node:http");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function wait(fn) {
   for (let i = 0; i < 200; i++) {
@@ -21,6 +22,18 @@ function layout() {
       type: t.input?.viewType || t.input?.constructor?.name,
     })),
   }));
+}
+async function readBrowserPage(address) {
+  const url = new URL(address);
+  return new Promise((resolve, reject) => {
+    http.get({ host: "127.0.0.1", port: url.port, path: url.pathname, agent: false, headers: { Host: url.host } }, response => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", chunk => { text += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode, text }));
+      response.on("error", reject);
+    }).on("error", reject);
+  });
 }
 exports.run = async () => {
   const file = path.join(
@@ -43,6 +56,8 @@ exports.run = async () => {
     const root = path.join(process.env.RAS_TEST_DIRECTORY, "project");
     for (const name of ["index.html", "second.html"])
       await fs.writeFile(path.join(root, name), "<h1>Reload preview</h1>");
+    await fs.writeFile(path.join(root, "browser-only.html"), '<link rel="stylesheet" href="browser.css"><h1>External browser before reload</h1>');
+    await fs.writeFile(path.join(root, "browser.css"), "h1{color:blue}");
     await fs.writeFile(path.join(root, "README.md"), "# Before reload");
     await fs.writeFile(path.join(root, "note.txt"), "before reload");
     const host = await api.registry.add({
@@ -77,6 +92,13 @@ exports.run = async () => {
     const note = items.find((e) => e.name === "note.txt");
     await api.sessionWorkspace.openFile(note);
     await api.sessionWorkspace.openFile(note);
+    const browserPanel = await api.sessionWorkspace.preview(items.find(node => node.name === "browser-only.html"));
+    let browserUrl;
+    await previews.launchBrowser(browserPanel, async uri => { browserUrl = uri.toString(); return true; });
+    assert.match((await readBrowserPage(browserUrl)).text, /External browser before reload/);
+    const browserPanelTitle = browserPanel.panel.title;
+    browserPanel.panel.dispose();
+    await wait(() => layout().every(group => group.tabs.every(tab => tab.label !== browserPanelTitle)));
     for (let i = 0; i < 2; i++)
       await vscode.commands.executeCommand(
         "remoteAgentSessions.previewMarkdown",
@@ -105,6 +127,7 @@ exports.run = async () => {
       root,
       checks: [],
       originalTmux: (await c.tmux.list()).find((s) => s.owner === r.id).id,
+      browserUrl,
     };
   } else {
     const c = api.controllers.find((c) => c.host.id === state.host);
@@ -117,6 +140,11 @@ exports.run = async () => {
       (await c.tmux.list()).find((s) => s.owner === state.record).id,
       state.originalTmux,
     );
+    await fs.writeFile(path.join(state.root, "browser-only.html"), "<h1>External browser after reload " + state.phase + "</h1>");
+    const browserPage = await readBrowserPage(state.browserUrl);
+    assert.equal(browserPage.status, 200);
+    assert.match(browserPage.text, new RegExp("External browser after reload " + state.phase));
+    assert.equal((await readBrowserPage(new URL("browser.css", state.browserUrl))).text, "h1{color:blue}");
     // VS Code initially exposes unresolved editor placeholders. Check the
     // group/tab counts first; compare full identities after revealing them.
     const shape = (groups) =>
@@ -210,7 +238,7 @@ exports.run = async () => {
     state.checks.push(
       "reload " +
         state.phase +
-        ": independent HTML and native Markdown tabs keep their layout, roots and live updates without restarting tmux",
+        ": HTML and Markdown tabs retain layout and live updates, and the external browser keeps the same URL after its editor tab was closed",
     );
   }
   if (state.phase < 2) {
