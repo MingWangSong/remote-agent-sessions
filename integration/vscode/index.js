@@ -343,6 +343,7 @@ exports.run = async function () {
     // Two host identities share the isolated fake SSH transport for this UI test.
     const other = { ...controller, host: { ...controller.host, id: host.id + '-second', label: 'Second SSH Host' } };
     let duplicate, unrelated;
+    api.provider.controllers.push(other);
     try {
       await api.attachEntry(other, entry);
       duplicate = vscode.window.terminals.find(terminal => terminal.name === `${record.title} · 2`);
@@ -369,6 +370,7 @@ exports.run = async function () {
       await sleep(100);
       assert.equal(api.terminalStatus.text, '');
     } finally {
+      api.provider.controllers = api.provider.controllers.filter(candidate => candidate !== other);
       duplicate?.dispose();
       unrelated?.dispose();
       first.show();
