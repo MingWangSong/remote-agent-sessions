@@ -140,7 +140,7 @@ exports.run = async function () {
   });
 
   await check('Running categories accept ordinary sessions and carry fixed fork descendants', async () => {
-    const parent = record;
+    const parent = await controller.manager.create({ title: 'Fork parent fixture', cwd: directory });
     const child = await controller.manager.create({ title: 'Fixed fork fixture', cwd: directory });
     const other = await controller.manager.create({ title: 'Movable session fixture', cwd: directory });
     await controller.manager.store.transaction(records => {
@@ -183,7 +183,10 @@ exports.run = async function () {
       await controller.manager.forget(child);
       await controller.manager.terminate(other);
       await controller.manager.forget(other);
+      await controller.manager.terminate(parent);
+      await controller.manager.forget(parent);
       await provider.order.reset(host.id);
+      await controller.refresh(false);
     }
   });
 
@@ -221,6 +224,7 @@ exports.run = async function () {
   await check('Actual SSH terminal opens in the active editor area and is reused', async () => {
     const hostItem = api.provider.getChildren()[0];
     const item = sessionItems(hostItem).find((candidate) => candidate.entry?.record?.id === record.id);
+    assert.ok(item, `Expected the SSH acceptance session in the sidebar: ${JSON.stringify(controller.manager.entries.map(entry => [entry.title, entry.status]))}`);
     const originalList = controller.tmux.list.bind(controller.tmux);
     let release;
     const gate = new Promise(resolve => { release = resolve; });
