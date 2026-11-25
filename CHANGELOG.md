@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.4.5 — 2026-11-26
+
+- Place Fork Session third in the running session context menu, after Session Files and Rename Session.
+
 ## 3.4.4 — 2026-11-25
 
 - Fork Codex and Claude conversations by entering only a new session name. Discover the exact original conversation from the active tmux pane when available, including for older unlinked sessions on Linux.

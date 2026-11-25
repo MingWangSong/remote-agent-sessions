@@ -205,6 +205,13 @@ exports.run = async function () {
           await click(row, 'right');
           step = 'Fork Session action in native menu';
           await waitFor(async () => (fork = await coords('.context-view .action-label', 'Fork Session')));
+          const firstActions = await browser.evaluate(workbench, `(() => {
+            const action = [...document.querySelectorAll('.context-view .action-label')].find(node =>
+              node.innerText?.trim() === 'Fork Session');
+            return [...action.closest('.monaco-menu').querySelectorAll('.action-label')]
+              .map(node => node.innerText.trim()).filter(Boolean).slice(0, 3);
+          })()`);
+          assert.deepEqual(firstActions, ['Session Files', 'Rename Session', 'Fork Session']);
           let updates = 0;
           const listener = provider.onDidChangeTreeData(() => { updates++; });
           try {

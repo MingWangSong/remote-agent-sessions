@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Remote tmux, Codex and Claude in one VS Code workspace. Native files, live HTML and Markdown previews, SFTP and recovery.",
-  "version": "3.4.4",
+  "version": "3.4.5",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -577,7 +577,7 @@
         {
           "command": "remoteAgentSessions.fork",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /^sessionLive.*CanFork/",
-          "group": "navigation@2"
+          "group": "navigation@6"
         }
       ],
       "remoteAgentSessions.sessionMore": [
