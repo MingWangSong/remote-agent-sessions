@@ -68,6 +68,18 @@ exports.run = async () => {
       // Choose the display type without starting an agent or making model calls.
       if (type !== 'shell') entry.record.agent = { type };
       await api.attachEntry(controller, entry);
+      // A terminal model can exist before its native editor has a title.
+      // Keep it active until that editor is ready, then open the next one.
+      const terminal = vscode.window.terminals.find(candidate => candidate.name === record.title);
+      assert.ok(await terminal?.processId);
+      let named;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        named = vscode.window.tabGroups.all.some(group => group.tabs.some(tab =>
+          tab.label === record.title && tab.input instanceof vscode.TabInputTerminal));
+        if (named) break;
+        await sleep(100);
+      }
+      assert.ok(named, `Expected a named native terminal tab for ${record.title}`);
     }
     await fs.writeFile(path.join(host.defaultCwd, 'inactive-icons.txt'), 'Leave agent tabs inactive during restore.\n');
     await vscode.window.showTextDocument(vscode.Uri.file(path.join(host.defaultCwd, 'inactive-icons.txt')), { preview: false });

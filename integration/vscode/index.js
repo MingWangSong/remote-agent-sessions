@@ -188,34 +188,34 @@ exports.run = async function () {
   });
 
   await check('Codex, Claude and shell have distinct icons in both groups; rows show no branch', async () => {
-    const saved = controller.manager.entries;
-    try {
-      controller.manager.entries = ['live', 'recoverable'].flatMap(status => ['codex', 'claude', 'shell'].map(type => ({
-        id: `${status}-${type}`, title: `${type} task`, tmuxSession: `${status}-${type}`, managed: true, status,
-        record: { id: `${status}-${type}`, agent: type === 'shell' ? null : { type }, gitBranch: 'must-not-appear-in-row' }
-      })));
-      const root = api.provider.getChildren()[0];
-      // Capture both groups before SVG reads yield to the periodic SSH refresh.
-      const groups = api.provider.getChildren(root).map(group =>
-        api.provider.getChildren(group).filter(item => item.kind === 'session'));
-      for (const items of groups) {
-        assert.equal(new Set(items.map(item => item.iconPath.id || path.basename(item.iconPath.light.fsPath))).size, 3);
-        for (const item of items) {
-          if (item.entry.record.agent) {
-            assert.equal(item.iconPath.light.scheme, 'file');
-            assert.equal(item.iconPath.dark.scheme, 'file');
-            for (const theme of ['light', 'dark']) {
-              const svg = await fs.readFile(item.iconPath[theme].fsPath, 'utf8');
-              assert.ok(svg.includes('<svg'));
-              assert.ok(!svg.includes('<script'));
-            }
+    const entries = ['live', 'recoverable'].flatMap(status => ['codex', 'claude', 'shell'].map(type => ({
+      id: `${status}-${type}`, title: `${type} task`, tmuxSession: `${status}-${type}`, managed: true, status,
+      record: { id: `${status}-${type}`, agent: type === 'shell' ? null : { type }, gitBranch: 'must-not-appear-in-row' }
+    })));
+    const root = {
+      kind: 'host',
+      controller: { ...controller, manager: { entries, records: [] } }
+    };
+    // Exercise the real provider without replacing its live inventory.
+    const groups = api.provider.getChildren(root).map(group =>
+      api.provider.getChildren(group).filter(item => item.kind === 'session'));
+    for (const items of groups) {
+      assert.equal(new Set(items.map(item => item.iconPath.id || path.basename(item.iconPath.light.fsPath))).size, 3);
+      for (const item of items) {
+        if (item.entry.record.agent) {
+          assert.equal(item.iconPath.light.scheme, 'file');
+          assert.equal(item.iconPath.dark.scheme, 'file');
+          for (const theme of ['light', 'dark']) {
+            const svg = await fs.readFile(item.iconPath[theme].fsPath, 'utf8');
+            assert.ok(svg.includes('<svg'));
+            assert.ok(!svg.includes('<script'));
           }
-          assert.equal(item.label, item.entry.title);
-          assert.ok(!item.description.includes('must-not-appear-in-row'));
-          assert.ok(!item.label.includes('must-not-appear-in-row'));
         }
+        assert.equal(item.label, item.entry.title);
+        assert.ok(!item.description.includes('must-not-appear-in-row'));
+        assert.ok(!item.label.includes('must-not-appear-in-row'));
       }
-    } finally { controller.manager.entries = saved; }
+    }
   });
 
   await check('Actual SSH terminal opens in the active editor area and is reused', async () => {
