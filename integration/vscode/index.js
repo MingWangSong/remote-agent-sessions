@@ -178,8 +178,9 @@ exports.run = async function () {
         provider.changed();
         await api.view.reveal(node, { select: true, focus: true });
         const browser = await require('./clipboard').browser();
+        let workbench, step = 'workbench';
         try {
-          const workbench = await browser.findDocument('!!document.querySelector(".monaco-workbench")', 'the workbench');
+          workbench = await browser.findDocument('!!document.querySelector(".monaco-workbench")', 'the workbench');
           const coords = async (selector, label) => browser.evaluate(workbench, `(() => {
             const node = [...document.querySelectorAll(${JSON.stringify(selector)})].find(element =>
               element.innerText?.trim() === ${JSON.stringify(label)} && element.getBoundingClientRect().width > 0);
@@ -189,11 +190,14 @@ exports.run = async function () {
           })()`);
           const click = async (point, button) => {
             for (const type of ['mousePressed', 'mouseReleased'])
-              await browser.send('Input.dispatchMouseEvent', { ...point, type, button, clickCount: 1 }, workbench.session);
+              await browser.send('Input.dispatchMouseEvent', { ...point, type, button,
+                buttons: type === 'mouseReleased' ? 0 : button === 'right' ? 2 : 1, clickCount: 1 }, workbench.session);
           };
           let row, fork;
+          step = 'nested row';
           await waitFor(async () => (row = await coords('.monaco-list-row .label-name', child.title)));
           await click(row, 'right');
+          step = 'Fork Session action in native menu';
           await waitFor(async () => (fork = await coords('.context-view .action-label', 'Fork Session')));
           let updates = 0;
           const listener = provider.onDidChangeTreeData(() => { updates++; });
@@ -204,12 +208,19 @@ exports.run = async function () {
           fork = await coords('.context-view .action-label', 'Fork Session');
           assert.ok(fork, 'the same native menu stays open after a background refresh');
           await click(fork, 'left');
+          step = 'Fork name input from the clicked row';
           await waitFor(() => browser.evaluate(workbench, `[...document.querySelectorAll('.quick-input-widget input')].some(input =>
             input.value === ${JSON.stringify(child.title + '-fork')})`));
-          for (const type of ['keyDown', 'keyUp'])
-            await browser.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, workbench.session);
+        } catch (error) {
+          const shown = workbench && await browser.evaluate(workbench, `({
+            rows: [...document.querySelectorAll('.monaco-list-row .label-name')].map(node => node.innerText),
+            menus: [...document.querySelectorAll('.context-view .action-label')].map(node => node.innerText),
+            inputs: [...document.querySelectorAll('.quick-input-widget input')].map(input => input.value)
+          })`).catch(() => undefined);
+          throw new Error(`Failed at ${step}: ${error.message}. Workbench: ${JSON.stringify(shown)}`, { cause: error });
         } finally {
-          await vscode.commands.executeCommand('closeQuickOpen');
+          if (workbench) for (const type of ['keyDown', 'keyUp'])
+            await browser.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, workbench.session).catch(() => {});
           browser.close();
         }
       }

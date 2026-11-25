@@ -53,6 +53,7 @@ exec sh -c "$1"
     'terminal.integrated.enablePersistentSessions': true,
     'security.workspace.trust.enabled': false,
     'workbench.startupEditor': 'none', 'window.restoreWindows': 'none',
+    'window.menuStyle': 'custom',
     'update.mode': 'none', 'telemetry.telemetryLevel': 'off'
   }));
   try {
