@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.4.3 — 2026-11-25
+
+- Keep nested session menus in place during unchanged SSH refreshes and separate category actions from session actions.
+- Show Fork Session for running Codex and Claude sessions that have not been linked yet. Choose the exact source history from the Fork flow without changing the original conversation.
+
 ## 3.4.2 — 2026-11-25
 
 - Restore external HTML preview addresses when the same VS Code workspace reloads or reopens, even if the source preview editor was closed. Restore the local listener before checking SSH, and retry browser navigation if the remote connection is temporarily unavailable.

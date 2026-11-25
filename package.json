@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Remote tmux, Codex and Claude in one VS Code workspace. Native files, live HTML and Markdown previews, SFTP and recovery.",
-  "version": "3.4.2",
+  "version": "3.4.3",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -502,17 +502,17 @@
         {
           "command": "remoteAgentSessions.showFiles",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session/",
-          "group": "navigation@2"
+          "group": "navigation@3"
         },
         {
           "command": "remoteAgentSessions.rename",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /^session(Live|Recoverable)/",
-          "group": "navigation@3"
+          "group": "navigation@4"
         },
         {
           "command": "remoteAgentSessions.adopt",
           "when": "view == remoteAgentSessions.sessions && viewItem == sessionLiveUnmanaged",
-          "group": "navigation@4"
+          "group": "navigation@5"
         },
         {
           "submenu": "remoteAgentSessions.sessionMore",
@@ -566,18 +566,18 @@
         },
         {
           "command": "remoteAgentSessions.renameCategory",
-          "when": "view == remoteAgentSessions.sessions && viewItem == sessionCategory",
+          "when": "view == remoteAgentSessions.sessions && viewItem == runningCategory",
           "group": "navigation@1"
         },
         {
           "command": "remoteAgentSessions.removeCategory",
-          "when": "view == remoteAgentSessions.sessions && viewItem == sessionCategory",
+          "when": "view == remoteAgentSessions.sessions && viewItem == runningCategory",
           "group": "danger@1"
         },
         {
           "command": "remoteAgentSessions.fork",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /^sessionLive.*CanFork/",
-          "group": "navigation@5"
+          "group": "navigation@2"
         }
       ],
       "remoteAgentSessions.sessionMore": [

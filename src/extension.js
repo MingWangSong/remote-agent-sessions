@@ -6,7 +6,7 @@ const vscode = require('vscode');
 const { parseBackup, mergeRecords } = require('./backup');
 const { HostRegistry } = require('./hostRegistry');
 const { basenameForTitle } = require('./model');
-const { GitInspector, SessionManager, checkTmuxName, owns } = require('./sessionManager');
+const { GitInspector, SessionManager, checkTmuxName, owns, forkAgentSource } = require('./sessionManager');
 const { SessionStore, validateRecords } = require('./store');
 const { SshClient, remoteCommand } = require('./ssh');
 const { TmuxClient } = require('./tmux');
@@ -20,6 +20,7 @@ const { TERMINAL_CONTEXT, TerminalConnections, terminalMetadata, guardedAttachSc
 const { reconnectingTerminal } = require('./reconnectingTerminal');
 const { chooseCodexConversation } = require('./conversationPicker');
 const { SessionWorkspace } = require('./sessionWorkspace');
+const { hostKey } = require('./sessionFileRoots');
 
 const terminals = new Map();
 const terminalContexts = new Map();
@@ -165,8 +166,7 @@ class SessionTreeItem extends vscode.TreeItem {
     this.iconPath = sessionIconPath(entry);
     if (entry.status === 'live') {
       this.contextValue = entry.managed ? 'sessionLiveManaged' : 'sessionLiveUnmanaged';
-      if (canForkAgent(entry.record?.agent) || entry.record?.windows?.some(window =>
-        window.panes?.some(pane => canForkAgent(pane.agent)))) this.contextValue += 'CanFork';
+      if (forkCandidate(entry)) this.contextValue += 'CanFork';
       this.command = { command: 'remoteAgentSessions.attach', title: 'Attach Session', arguments: [this] };
     } else if (entry.status === 'recoverable') {
       this.contextValue = 'sessionRecoverable';
@@ -183,6 +183,11 @@ class SessionTreeItem extends vscode.TreeItem {
       this.description = activity.label;
     }
   }
+}
+
+function forkCandidate(entry) {
+  return entry.status === 'live' && (builtinAgent(sessionType(entry)) ||
+    entry.record?.windows?.some(window => window.panes?.some(pane => canForkAgent(pane.agent))));
 }
 
 class MessageTreeItem extends vscode.TreeItem {
@@ -220,7 +225,7 @@ class SessionCategoryItem extends vscode.TreeItem {
     this.controller = controller;
     this.category = category;
     this.id = `category:${controller.host.id}:${category.id}`;
-    this.contextValue = 'sessionCategory';
+    this.contextValue = 'runningCategory';
     this.description = String(count);
     this.iconPath = new vscode.ThemeIcon('folder');
   }
@@ -342,11 +347,27 @@ class MultiHostTreeProvider {
       await this.categories.move(data.hostId, keys, categoryId, parent && sessionKey(parent));
     }
     await this.order.move(data.hostId, entries, keys, before);
-    this.changeEmitter.fire(undefined);
+    this.changed();
   }
 
-  changed() {
+  changed(force = false) {
     this.onCountChanged(this.controllers);
+    // Runtime data such as tmux activity and snapshots changes every poll.
+    // Refresh only when a row, its menu, or the visible hierarchy changed.
+    const shown = JSON.stringify(this.controllers.map(controller => {
+      const hostId = controller.host.id;
+      return [hostKey(controller.host), controller.host.label, controller.online,
+        controller.error?.message, controller.activity, this.order.saved(hostId), this.categories.get(hostId),
+        controller.manager.entries.map(entry => [
+          entry.id, entry.status, entry.managed, entry.title, entry.tmuxSession, entry.cwd,
+          sessionType(entry), buildDescription(entry), forkCandidate(entry), entry.record?.forkParentId,
+          entry.live?.id, entry.live?.created, entry.live?.owner,
+          entry.record?.note, entry.record?.agent?.sessionId, entry.record?.agent?.recoveryVersion,
+          entry.record?.agent?.manualRestore, controller.sessionActivity.get(entry.id)?.label
+        ])];
+    }));
+    if (!force && shown === this.shown) return;
+    this.shown = shown;
     this.changeEmitter.fire(undefined);
   }
 
@@ -354,7 +375,7 @@ class MultiHostTreeProvider {
     const controllers = this.registry.list().map((host) => new HostController(host, this.context, this.configuration));
     this.controllers = controllers;
     this.reloading = true;
-    this.changed();
+    this.changed(true);
     try {
       if (beforeRefresh) await beforeRefresh();
       await this.refresh(undefined, false);
@@ -366,8 +387,7 @@ class MultiHostTreeProvider {
   async refresh(controller, snapshot = true) {
     const targets = controller ? [controller] : this.controllers;
     await Promise.all(targets.map((target) => target.refresh(snapshot)));
-    this.onCountChanged(this.controllers);
-    this.changeEmitter.fire(undefined);
+    this.changed();
   }
 
   dispose() { this.changeEmitter.dispose(); }
@@ -431,7 +451,11 @@ async function activate(context) {
       const { controller, entry } = context;
       const current = provider.controllers.find(candidate => candidate.host.id === controller.host.id);
       const selected = current?.manager.entries.find(candidate => candidate.id === entry.id);
-      if (selected) await view.reveal(provider.sessionItem(current, selected), { select: true, focus: false });
+      if (selected) {
+        const node = provider.sessionItem(current, selected);
+        if (!view.selection.some(item => item.id === node.id))
+          await view.reveal(node, { select: true, focus: false });
+      }
     }).catch(() => {});
   };
   context.subscriptions.push(status, provider, view);
@@ -443,14 +467,18 @@ async function activate(context) {
   const command = (name, handler) => {
     context.subscriptions.push(vscode.commands.registerCommand(name, (...args) => {
       const item = args[0];
-      const controller = item?.controller || (provider.controllers.length === 1 ? provider.controllers[0] : null);
+      const controller = item?.controller
+        ? provider.controllers.find(candidate => hostKey(candidate.host) === hostKey(item.controller.host))
+        : (provider.controllers.length === 1 ? provider.controllers[0] : null);
       const hostId = controller?.host.id || 'all-hosts';
       if (name === 'remoteAgentSessions.attach' && item?.kind === 'session') {
         const existing = terminals.get(`${hostId}:${item.entry.id}`);
-        if (existing && existing.exitStatus === undefined) {
+        if (controller && existing && existing.exitStatus === undefined) {
           // Focusing an already-open terminal is entirely local and must not sit
           // behind a slow refresh or Agent initialization on the same host.
-          return attachEntry(controller, item.entry).catch(error => vscode.window.showErrorMessage(humanError(error)));
+          const current = controller.manager.entries.find(entry => entry.id === item.entry.id);
+          if (current?.status === 'live')
+            return attachEntry(controller, current).catch(error => vscode.window.showErrorMessage(humanError(error)));
         }
       }
       const key = `${name}:${hostId}:${item?.entry?.id || ''}`;
@@ -676,15 +704,30 @@ async function activate(context) {
   });
 
   command('remoteAgentSessions.fork', async (item, report) => {
-    const resolved = await resolveSession(item, provider, entry => entry.status === 'live' && entry.managed);
+    const resolved = await resolveSession(item, provider, forkCandidate);
     if (!resolved) return;
-    const { controller, entry } = resolved;
+    const { controller } = resolved;
+    let { entry } = resolved;
     const name = await vscode.window.showInputBox({
       title: `Fork ${entry.title}`, value: entry.tmuxSession.slice(0, 75) + '-fork', validateInput: validateTmuxNameInput
     });
     if (name === undefined) return;
+    let conversation;
+    if (!forkAgentSource(entry.record, entry.live)) {
+      // Select the exact history before adopting an unmanaged tmux session.
+      // Cancelling the picker leaves the session and its metadata untouched.
+      conversation = await chooseOriginalConversation(controller, entry.record || entry, sessionType(entry), true);
+      if (!conversation) return;
+      if (!entry.record) {
+        report('Registering the parent tmux session');
+        const parent = await controller.manager.adopt(entry, entry.tmuxSession);
+        entry = controller.manager.entries.find(candidate => candidate.id === parent.id);
+        if (entry?.status !== 'live') throw new Error('The parent session is no longer running');
+        provider.changed();
+      }
+    }
     report('Forking the linked conversation and preparing tmux');
-    const record = await controller.manager.fork(entry, name.trim(), controller.host.id);
+    const record = await controller.manager.fork(entry, name.trim(), controller.host.id, conversation);
     provider.changed();
     report('Opening the forked session');
     await attachEntry(controller, controller.manager.entries.find(candidate => candidate.id === record.id));
@@ -928,7 +971,11 @@ async function activate(context) {
 function deactivate() { return terminalConnections?.pending; }
 
 async function resolveHost(item, provider) {
-  if (item?.controller) return item.controller;
+  if (item?.controller) {
+    const controller = provider.controllers.find(candidate => hostKey(candidate.host) === hostKey(item.controller.host));
+    if (controller) return controller;
+    throw new Error('This host changed. Select the current row and try again.');
+  }
   if (!provider.controllers.length) {
     vscode.window.showInformationMessage('Add an SSH host first.');
     return null;
@@ -945,8 +992,11 @@ async function resolveHost(item, provider) {
 async function resolveSession(item, provider, predicate) {
   if (item?.kind === 'session') {
     // Use the displayed entry; lifecycle methods and attach validate live identity themselves.
-    const entry = item.controller.manager.entries.find((candidate) => candidate.id === item.entry.id);
-    if (entry && predicate(entry)) return { controller: item.controller, entry };
+    const controller = await resolveHost(item, provider);
+    const entry = controller.manager.entries.find((candidate) => candidate.id === item.entry.id);
+    const sameLive = !item.entry.live || !entry?.live ||
+      (entry.live.id === item.entry.live.id && entry.live.created === item.entry.live.created && entry.live.owner === item.entry.live.owner);
+    if (entry && sameLive && predicate(entry)) return { controller, entry };
     vscode.window.showInformationMessage('This session changed. Refresh and select it again.');
     return null;
   }
@@ -1085,25 +1135,29 @@ async function chooseRestoreCommandPolicy(record, configuration) {
   return answer === 'Restore and Run Commands' ? true : answer === 'Restore Shells Only' ? false : undefined;
 }
 
-async function bindOriginalConversation(controller, record) {
-  const type = builtinAgent(record.agent?.type) ? record.agent.type
+async function chooseOriginalConversation(controller, record, preferredType = record.agent?.type, forFork = false) {
+  const type = builtinAgent(preferredType) ? preferredType
     : (await vscode.window.showQuickPick([{ label: 'Claude', type: 'claude' }, { label: 'Codex', type: 'codex' }],
       { title: 'Agent type for the original conversation' }))?.type;
   if (!type) return false;
   if (type === 'codex') {
-    const selected = await chooseCodexConversation(vscode.window, controller.manager.agents, record, controller.host.label);
-    if (!selected) return false;
-    await controller.manager.bindAgentSession(record, type, selected.sessionId, { archived: selected.archived });
-    return true;
+    const selected = await chooseCodexConversation(vscode.window, controller.manager.agents, record, controller.host.label, { forFork });
+    return selected && { type, ...selected };
   }
   const id = await vscode.window.showInputBox({
-    title: `Bind Original ${type === 'codex' ? 'Codex' : 'Claude'} Conversation`,
-    prompt: 'Paste the original conversation UUID from the Agent CLI. The ID is verified before binding; a new conversation will not be created.',
+    title: forFork ? 'Choose Claude Conversation to Fork' : `Bind Original ${type === 'codex' ? 'Codex' : 'Claude'} Conversation`,
+    prompt: forFork ? 'Paste the original conversation UUID. TmuxDock will fork this exact conversation.'
+      : 'Paste the original conversation UUID from the Agent CLI. The ID is verified before binding; a new conversation will not be created.',
     value: record.agent?.sessionId || '',
     validateInput: value => UUID.test(value.trim()) ? null : 'Enter a conversation UUID, not a name or --last'
   });
-  if (!id) return false;
-  await controller.manager.bindAgentSession(record, type, id.trim());
+  return id && { type, sessionId: id.trim() };
+}
+
+async function bindOriginalConversation(controller, record) {
+  const conversation = await chooseOriginalConversation(controller, record);
+  if (!conversation) return false;
+  await controller.manager.bindAgentSession(record, conversation.type, conversation.sessionId, { archived: conversation.archived });
   return true;
 }
 

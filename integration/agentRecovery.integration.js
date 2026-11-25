@@ -226,3 +226,23 @@ for (const type of ['claude', 'codex']) test(`Fork ${type}: start a new tmux and
   assert.equal((await f.store.load()).find(item => item.id === child.id).forkParentId, parent.id);
   assert.ok(await f.tmux.exists(parent.tmuxSession));
 });
+
+test('an unlinked tmux session can fork an explicitly selected Codex history without renaming the source', async t => {
+  const f = await fixture(t);
+  const manager = f.manager();
+  const root = await fs.realpath(f.dir);
+  const history = await f.agents.prepare('codex', 'Original title', root);
+  await f.tmux.create('Legacy parent', root);
+  await manager.refresh(false);
+  const legacy = manager.entries.find(entry => entry.tmuxSession === 'Legacy parent');
+  const parent = await manager.adopt(legacy, legacy.title);
+  const entry = manager.entries.find(item => item.id === parent.id);
+  const child = await manager.fork(entry, 'Legacy fork', undefined, { type: 'codex', sessionId: history.sessionId });
+  const [launch] = await f.waitLaunches(1);
+  assert.equal(launch.sourceId, history.sessionId);
+  assert.equal(launch.id, child.agent.sessionId);
+  assert.equal(child.forkParentId, parent.id);
+  const histories = JSON.parse(await fs.readFile(path.join(root, 'threads.json'), 'utf8'));
+  assert.equal(histories[history.sessionId].name, 'Original title');
+  assert.equal((await f.store.load()).find(record => record.id === parent.id).agent, null);
+});

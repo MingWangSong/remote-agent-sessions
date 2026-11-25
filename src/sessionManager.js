@@ -54,6 +54,20 @@ function owns(record, live) {
 function sameLiveIdentity(expected, actual) {
   return Boolean(actual && (!expected || (expected.id === actual.id && expected.created === actual.created)));
 }
+function forkPane(windows) {
+  const activeWindow = windows.find(window => window.active) || windows[0];
+  const pane = activeWindow?.panes?.find(candidate => candidate.active) || activeWindow?.panes?.[0];
+  return { pane, cwd: pane?.cwd || activeWindow?.cwd };
+}
+function forkAgentSource(record, live, windows = live?.snapshotWindows || []) {
+  if (!record) return;
+  const { pane } = forkPane(windows);
+  const saved = record.windows?.flatMap(window => window.panes || []).find(candidate => pane?.id && candidate.id === pane.id);
+  const primary = record.windows?.[0]?.panes?.[0];
+  const type = commandType(pane?.currentCommand || live?.currentCommand);
+  const source = saved?.agent || (!type || (primary?.id === pane?.id && type === record.agent?.type) ? record.agent : null);
+  return canForkAgent(source) && (!type || type === source.type) ? source : undefined;
+}
 function preserveCommands(windows, previous, byIndex = false) {
   for (const [wi, window] of windows.entries()) {
     const old = byIndex ? previous[wi] : previous.find((w) => w.id ? w.id === window.id : w.name === window.name);
@@ -195,31 +209,30 @@ class SessionManager {
     await this.restore(record, true);
     return this.records.find((r) => r.id === record.id);
   }
-  async fork(input, title, host) {
+  async fork(input, title, host, conversation) {
     if (!this.agents) throw new Error('Agent forking is unavailable for this host');
     const record = find(await this.store.load(), input);
     const live = (await this.tmux.list()).find(session => session.owner === record.id || session.name === record.tmuxSession);
     if (!owns(record, live) || !sameLiveIdentity(input.live, live))
       throw new Error('The parent tmux session changed. Refresh and select it again.');
     const windows = live.snapshotWindows || await this.tmux.listWindows(live.name);
-    const activeWindow = windows.find(window => window.active) || windows[0];
-    const pane = activeWindow?.panes?.find(candidate => candidate.active) || activeWindow?.panes?.[0];
-    const savedPane = record.windows.flatMap(window => window.panes || []).find(candidate => pane?.id && candidate.id === pane.id);
+    const { pane, cwd } = forkPane(windows);
     const currentType = commandType(pane?.currentCommand || live.currentCommand);
-    const primaryPane = record.windows[0]?.panes?.[0];
-    const source = savedPane?.agent || (!currentType || (primaryPane?.id === pane?.id &&
-      currentType === record.agent?.type) ? record.agent : null);
+    const source = conversation ? { ...conversation, recoveryVersion: 1 } : forkAgentSource(record, live, windows);
     if (!canForkAgent(source) || (currentType && currentType !== source.type))
       throw new Error('Select the linked Agent pane in the parent session, or use Link Agent History first.');
-    return this.create({ title, host, cwd: pane?.cwd || activeWindow?.cwd || record.cwd,
+    return this.create({ title, host, cwd: cwd || record.cwd,
       agent: { type: source.type }, forkParentId: record.id }, source);
   }
   async adopt(entry, title) {
     const result = await this.store.transaction(async (records) => {
-      const existing = records.find((r) => r.tmuxSession === entry.tmuxSession);
-      if (existing) return structuredClone(existing);
       const live = (await this.tmux.list()).find((s) => s.name === entry.tmuxSession);
-      if (!live) throw new Error('tmux session has disappeared');
+      if (!sameLiveIdentity(entry.live, live))
+        throw new Error('The tmux session changed. Refresh and select it again.');
+      const existing = records.find((r) => r.tmuxSession === entry.tmuxSession);
+      if (existing && owns(existing, live)) return structuredClone(existing);
+      if (existing || (entry.live && entry.live.owner !== live.owner))
+        throw new Error('The tmux session ownership changed. Refresh and select it again.');
       const windows = await this.tmux.listWindows(entry.tmuxSession);
       const cwd = windows[0]?.cwd;
       await this.directoryChecker(cwd);
@@ -522,4 +535,4 @@ function checkTmuxName(name) {
   }
 }
 
-module.exports = { GitInspector, SessionManager, checkTmuxName, preserveCommands, owns, sameLiveIdentity };
+module.exports = { GitInspector, SessionManager, checkTmuxName, preserveCommands, owns, sameLiveIdentity, forkAgentSource };

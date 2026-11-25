@@ -144,7 +144,9 @@ exports.run = async function () {
     const child = await controller.manager.create({ title: 'Fixed fork fixture', cwd: directory });
     const other = await controller.manager.create({ title: 'Movable session fixture', cwd: directory });
     await controller.manager.store.transaction(records => {
-      records.find(entry => entry.id === child.id).forkParentId = parent.id;
+      const childRecord = records.find(entry => entry.id === child.id);
+      childRecord.forkParentId = parent.id;
+      childRecord.agent = { type: 'codex', manualRestore: true };
     });
     await controller.manager.reloadRecords();
     const provider = api.provider;
@@ -159,6 +161,7 @@ exports.run = async function () {
       await provider.categories.create(host.id, 'Reports');
       const category = provider.getChildren(running).find(item => item.kind === 'category');
       assert.equal(category.collapsibleState, vscode.TreeItemCollapsibleState.Collapsed);
+      assert.equal(category.contextValue, 'runningCategory');
       const rootParent = find(running, parent.id);
       const nested = find(rootParent, child.id);
       assert.equal(provider.getParent(nested).id, rootParent.id);
@@ -168,6 +171,48 @@ exports.run = async function () {
       await drop(rootParent, category);
       const movedParent = find(category, parent.id);
       assert.equal(find(movedParent, child.id).entry.id, child.id);
+      if (process.env.RAS_TEST_DEBUG_PORT) {
+        const node = find(movedParent, child.id);
+        assert.match(node.contextValue, /CanFork/, 'an Agent without linked history must expose Fork');
+        await vscode.commands.executeCommand('remoteAgentSessions.sessions.focus');
+        provider.changed();
+        await api.view.reveal(node, { select: true, focus: true });
+        const browser = await require('./clipboard').browser();
+        try {
+          const workbench = await browser.findDocument('!!document.querySelector(".monaco-workbench")', 'the workbench');
+          const coords = async (selector, label) => browser.evaluate(workbench, `(() => {
+            const node = [...document.querySelectorAll(${JSON.stringify(selector)})].find(element =>
+              element.innerText?.trim() === ${JSON.stringify(label)} && element.getBoundingClientRect().width > 0);
+            if (!node) return null;
+            const rect = node.getBoundingClientRect();
+            return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+          })()`);
+          const click = async (point, button) => {
+            for (const type of ['mousePressed', 'mouseReleased'])
+              await browser.send('Input.dispatchMouseEvent', { ...point, type, button, clickCount: 1 }, workbench.session);
+          };
+          let row, fork;
+          await waitFor(async () => (row = await coords('.monaco-list-row .label-name', child.title)));
+          await click(row, 'right');
+          await waitFor(async () => (fork = await coords('.context-view .action-label', 'Fork Session')));
+          let updates = 0;
+          const listener = provider.onDidChangeTreeData(() => { updates++; });
+          try {
+            await provider.refresh(controller, false);
+            assert.equal(updates, 0, 'an unchanged polling result must not rebuild the tree');
+          } finally { listener.dispose(); }
+          fork = await coords('.context-view .action-label', 'Fork Session');
+          assert.ok(fork, 'the same native menu stays open after a background refresh');
+          await click(fork, 'left');
+          await waitFor(() => browser.evaluate(workbench, `[...document.querySelectorAll('.quick-input-widget input')].some(input =>
+            input.value === ${JSON.stringify(child.title + '-fork')})`));
+          for (const type of ['keyDown', 'keyUp'])
+            await browser.send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 }, workbench.session);
+        } finally {
+          await vscode.commands.executeCommand('closeQuickOpen');
+          browser.close();
+        }
+      }
       await drop(find(running, other.id), movedParent);
       assert.equal(provider.getParent(find(movedParent, other.id)).id, movedParent.id);
       await drop(find(movedParent, other.id), running);
@@ -179,6 +224,8 @@ exports.run = async function () {
       await provider.categories.remove(host.id, category.category.id);
       assert.ok(find(find(running, parent.id), child.id), 'removing the category preserves sessions and lineage');
     } finally {
+      // Finish the cancelled Fork command before tearing down the fixture.
+      await waitFor(() => !controller.sessionActivity.has(child.id));
       await controller.manager.terminate(child);
       await controller.manager.forget(child);
       await controller.manager.terminate(other);
