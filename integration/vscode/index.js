@@ -206,17 +206,12 @@ exports.run = async function () {
             await provider.refresh(controller, false);
             assert.equal(updates, 0, 'an unchanged polling result must not rebuild the tree');
           } finally { listener.dispose(); }
+          // VS Code installs its menu mouse-up handler after 100 ms to ignore
+          // the release that opened the menu. Let the native action become ready.
+          await sleep(150);
           fork = await coords('.context-view .action-label', 'Fork Session');
           assert.ok(fork, 'the same native menu stays open after a background refresh');
-          // Invoke the rendered VS Code menu item even if Xvfb's pointer
-          // coordinates drift when the context view is positioned at an edge.
-          assert.ok(await browser.evaluate(workbench, `(() => {
-            const action = [...document.querySelectorAll('.context-view .action-label')].find(element =>
-              element.innerText.trim() === 'Fork Session' && element.getBoundingClientRect().width > 0);
-            if (!action) return false;
-            action.click();
-            return true;
-          })()`));
+          await click(fork, 'left');
           step = 'Fork name input from the clicked row';
           await waitFor(() => browser.evaluate(workbench, `[...document.querySelectorAll('.quick-input-widget input')].some(input =>
             input.value === ${JSON.stringify(child.title + '-fork')})`));
