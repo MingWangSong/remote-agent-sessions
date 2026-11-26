@@ -12,6 +12,7 @@ const { SshClient, remoteCommand } = require('./ssh');
 const { TmuxClient } = require('./tmux');
 const { SessionOrder, sessionKey } = require('./sessionOrder');
 const { SessionCategories, categoryNameError, runningTree } = require('./sessionCategories');
+const { SessionOrderPanels } = require('./sessionOrderPanel');
 const { Operations } = require('./operations');
 const { sessionType, TYPE_ICONS, TYPE_LABELS } = require('./sessionType');
 const { terminalTitle, bannerText } = require('./terminalTitle');
@@ -240,8 +241,6 @@ class MultiHostTreeProvider {
     this.controllers = [];
     this.order = new SessionOrder(context.globalState);
     this.categories = new SessionCategories(context.globalState);
-    this.dragMimeTypes = ['application/vnd.code.tree.remoteagentsessions.sessions'];
-    this.dropMimeTypes = [...this.dragMimeTypes];
     this.changeEmitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.changeEmitter.event;
   }
@@ -249,8 +248,8 @@ class MultiHostTreeProvider {
   getTreeItem(item) { return item; }
 
   running(controller) {
-    const entries = this.order.sort(controller.host.id, controller.manager.entries.filter(entry => entry.status === 'live'));
     const state = this.categories.get(controller.host.id);
+    const entries = this.order.sort(controller.host.id, controller.manager.entries.filter(entry => entry.status === 'live'), state.order);
     return { ...runningTree(entries, controller.manager.records, state), entries, categories: state.categories };
   }
 
@@ -292,7 +291,8 @@ class MultiHostTreeProvider {
     }
     if (item.kind === 'sessionGroup') {
       return this.order.sort(item.controller.host.id, item.controller.manager.entries
-        .filter(entry => sessionGroup(entry) === item.group)).map(entry => new SessionTreeItem(item.controller, entry));
+        .filter(entry => sessionGroup(entry) === item.group), this.categories.get(item.controller.host.id).order)
+        .map(entry => new SessionTreeItem(item.controller, entry));
     }
     if (item.kind !== 'host') return [];
     const controller = item.controller;
@@ -305,49 +305,33 @@ class MultiHostTreeProvider {
     });
   }
 
-  handleDrag(items, transfer) {
-    const sessions = items.filter(item => item.kind === 'session' && !item.entry.record?.forkParentId);
-    if (!sessions.length || sessions.some(item => item.controller !== sessions[0].controller || sessionGroup(item.entry) !== sessionGroup(sessions[0].entry))) return;
-    transfer.set(this.dragMimeTypes[0], new vscode.DataTransferItem({
-      hostId: sessions[0].controller.host.id, group: sessionGroup(sessions[0].entry), keys: sessions.map(item => sessionKey(item.entry))
-    }));
+  orderSections(controller) {
+    const tree = this.running(controller);
+    const row = entry => ({ key: sessionKey(entry), title: entry.title,
+      fixed: Boolean(entry.record?.forkParentId), forks: tree.children.get('parent:' + entry.id)?.length || 0 });
+    const section = (categoryId, title) => ({ categoryId, title, group: 'running',
+      rows: (tree.children.get('category:' + (categoryId || '')) || []).map(row) });
+    const statuses = this.getChildren(new HostTreeItem(controller))
+      .filter(item => item.kind === 'sessionGroup' && item.group !== 'running');
+    return [...tree.categories.map(category => section(category.id, category.name)), section(null, 'Running · Ungrouped'),
+      ...statuses.map(item => ({ categoryId: null, group: item.group, title: item.label,
+        rows: this.getChildren(item).map(node => row(node.entry)) }))];
   }
 
-  async handleDrop(target, transfer) {
-    const data = transfer.get(this.dragMimeTypes[0])?.value;
-    if (!data || !target?.controller || data.hostId !== target.controller.host.id || !Array.isArray(data.keys)) return;
-    const group = target.kind === 'session' ? sessionGroup(target.entry) :
-      target.kind === 'sessionGroup' ? target.group : target.kind === 'category' ? 'running' : data.group;
-    if (group !== data.group) return;
-    const entries = target.controller.manager.entries.filter(entry => sessionGroup(entry) === group);
-    if (!data.keys.every(key => entries.some(entry => sessionKey(entry) === key && !entry.record?.forkParentId))) return;
-    const keys = data.keys;
-    let before = target.kind === 'session' ? sessionKey(target.entry) : null;
-    if (keys.includes(before)) return;
-    if (group === 'running') {
-      const tree = this.running(target.controller);
-      let parent;
-      let categoryId = target.kind === 'category' ? target.category.id : null;
-      if (target.kind === 'session') {
-        const location = tree.locations.get(target.entry.id);
-        if (!location) return;
-        if (tree.children.has('parent:' + target.entry.id)) {
-          parent = target.entry;
-          before = null;
-        } else {
-          parent = location.parent;
-          categoryId = location.categoryId;
-        }
-        // A drop on a descendant would make a cycle. Preserve the current tree.
-        for (let node = parent; node; node = tree.locations.get(node.id)?.parent) {
-          if (keys.includes(sessionKey(node))) return;
-          categoryId = tree.locations.get(node.id)?.categoryId;
-        }
-      }
-      await this.categories.move(data.hostId, keys, categoryId, parent && sessionKey(parent));
+  async reorder(controller, move) {
+    if (!this.controllers.includes(controller) || typeof move?.entry !== 'string' ||
+      (move.before !== null && typeof move.before !== 'string')) return false;
+    const id = controller.host.id;
+    let saved;
+    if (move.kind === 'category') {
+      saved = await this.categories.reorderCategory(id, move.entry, move.before);
+    } else if (move.kind === 'session' && ['running', 'stopped', 'unknown'].includes(move.group)) {
+      const readGroup = group => ({ entries: controller.manager.entries.filter(entry => sessionGroup(entry) === group),
+        records: controller.manager.records });
+      saved = await this.categories.reorderSession(id, move, readGroup, this.order.saved(id));
     }
-    await this.order.move(data.hostId, entries, keys, before);
-    this.changed();
+    if (saved) this.changed();
+    return Boolean(saved);
   }
 
   changed(force = false) {
@@ -438,8 +422,17 @@ async function activate(context) {
   };
   context.subscriptions.push(vscode.window.onDidOpenTerminal(terminal => { reconnectTerminal(terminal).catch(() => {}); }));
   const view = vscode.window.createTreeView('remoteAgentSessions.sessions', {
-    treeDataProvider: provider, dragAndDropController: provider, canSelectMany: true
+    treeDataProvider: provider, canSelectMany: true
   });
+  const orderPanels = new SessionOrderPanels(context.extensionUri, provider);
+  context.subscriptions.push(orderPanels, vscode.commands.registerCommand('remoteAgentSessions.reorderSessions', async item => {
+    try {
+      const controller = await resolveHost(item, provider);
+      if (controller) orderPanels.open(controller);
+    } catch (error) {
+      vscode.window.showErrorMessage(humanError(error));
+    }
+  }));
   let latestSelection;
   let pendingSelection = Promise.resolve();
   syncTreeSelection = context => {
@@ -521,7 +514,7 @@ async function activate(context) {
   command('remoteAgentSessions.resetOrder', async item => {
     const controller = await resolveHost(item, provider);
     if (!controller) return;
-    await provider.order.reset(controller.host.id);
+    await provider.categories.resetOrder(controller.host.id);
     provider.changed();
   });
 

@@ -1,7 +1,7 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
-const { sessionKey } = require('./sessionOrder');
+const { sessionKey, moveSessionKeys, sortSessionEntries } = require('./sessionOrder');
 const KEY = 'remoteAgentSessions.sessionCategories.v1';
 
 function categoryNameError(value) {
@@ -22,7 +22,7 @@ class SessionCategories {
     // VS Code delivers whole-extension storage snapshots asynchronously.
     // Ignore an older snapshot arriving after a successful category edit.
     const latest = local && local.revision > (saved?.revision || 0) ? local : saved;
-    return { categories: [], membership: {}, parents: {}, ...latest };
+    return { categories: [], membership: {}, ...latest };
   }
 
   update(hostId, change) {
@@ -30,10 +30,11 @@ class SessionCategories {
       const hosts = { ...this.storage.get(KEY, {}) };
       for (const id of this.committed.keys()) hosts[id] = this.get(id);
       const state = structuredClone(this.get(hostId));
-      change(state);
+      if (change(state) === false) return false;
       state.revision = Math.max(Date.now(), (state.revision || 0) + 1);
       await this.storage.update(KEY, { ...hosts, [hostId]: state });
       this.committed.set(hostId, state);
+      return true;
     });
     this.pending = result.catch(() => {});
     return result;
@@ -67,14 +68,40 @@ class SessionCategories {
     });
   }
 
-  move(hostId, keys, categoryId, parentKey) {
+  resetOrder(hostId) {
+    return this.update(hostId, state => { state.order = []; });
+  }
+
+  reorderCategory(hostId, id, before) {
     return this.update(hostId, state => {
-      if (categoryId && !state.categories.some(category => category.id === categoryId)) return;
-      for (const key of keys) {
-        state.membership[key] = categoryId || null;
-        if (parentKey) state.parents[key] = parentKey;
-        else delete state.parents[key];
+      const category = state.categories.find(item => item.id === id);
+      const remaining = state.categories.filter(item => item.id !== id);
+      const index = before === null ? remaining.length : remaining.findIndex(item => item.id === before);
+      if (!category || index < 0) return false;
+      remaining.splice(index, 0, category);
+      state.categories = remaining;
+    });
+  }
+
+  reorderSession(hostId, { entry, before, group, categoryId }, readGroup, legacyOrder) {
+    return this.update(hostId, state => {
+      const saved = state.order ?? legacyOrder;
+      const latest = readGroup(group);
+      const entries = sortSessionEntries(latest.entries, saved);
+      const source = entries.find(item => sessionKey(item) === entry);
+      if (!source || source.record?.forkParentId || entry === before) return false;
+      if (group === 'running') {
+        if (categoryId !== null && !state.categories.some(category => category.id === categoryId)) return false;
+        const tree = runningTree(entries, latest.records, state);
+        const anchor = entries.find(item => sessionKey(item) === before);
+        const location = anchor && tree.locations.get(anchor.id);
+        if (before !== null && (!location || location.parent || location.categoryId !== categoryId)) return false;
+        // Membership and order change together, so a move can't land in the wrong group if saving fails.
+        state.membership[entry] = categoryId;
       }
+      const next = moveSessionKeys(entries.map(sessionKey), saved, [entry], before);
+      if (!next) return false;
+      state.order = next;
     });
   }
 }
@@ -83,8 +110,6 @@ class SessionCategories {
 // or belongs to a different status group. Break cycles in imported metadata.
 function runningTree(entries, records, state) {
   const liveById = new Map(entries.map(entry => [entry.id, entry]));
-  const liveByKey = new Map(entries.flatMap(entry => [[sessionKey(entry), entry],
-    ...(entry.live ? [[sessionKey({ live: entry.live }), entry]] : [])]));
   const recordsById = new Map(records.map(record => [record.id, record]));
   const categoryIds = new Set(state.categories.map(category => category.id));
   const children = new Map();
@@ -105,9 +130,7 @@ function runningTree(entries, records, state) {
         if (Object.hasOwn(state.membership, key)) categoryId = state.membership[key];
         else if (formerKey && Object.hasOwn(state.membership, formerKey)) categoryId = state.membership[formerKey];
       }
-      const manual = state.parents[key] || state.parents[formerKey];
-      id = record?.forkParentId || liveByKey.get(manual)?.id ||
-        (recordsById.has(manual) ? manual : undefined);
+      id = record?.forkParentId;
     }
     if (seen.has(id)) parent = undefined;
     const location = parent ? { parent } : { categoryId: categoryIds.has(categoryId) ? categoryId : null };

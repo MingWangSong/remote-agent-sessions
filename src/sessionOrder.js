@@ -12,29 +12,37 @@ function byCreation(a, b) {
   return creationTime(a).localeCompare(creationTime(b)) || sessionKey(a).localeCompare(sessionKey(b));
 }
 
+function sortSessionEntries(entries, saved) {
+  const ranks = new Map(saved.map((key, index) => [key, index]));
+  return [...entries].sort((a, b) =>
+    (ranks.get(sessionKey(a)) ?? Infinity) - (ranks.get(sessionKey(b)) ?? Infinity) || byCreation(a, b));
+}
+
+function moveSessionKeys(ordered, saved, movingKeys, beforeKey) {
+  const selected = new Set(movingKeys);
+  const moving = ordered.filter(key => selected.has(key));
+  if (!moving.length || selected.has(beforeKey)) return;
+  const remaining = ordered.filter(key => !selected.has(key));
+  const index = beforeKey == null ? remaining.length : remaining.indexOf(beforeKey);
+  if (index < 0) return;
+  remaining.splice(index, 0, ...moving);
+  // Retain temporarily unavailable sessions' positions in the stored sequence.
+  const visible = new Set(ordered);
+  let next = 0;
+  const result = saved.map(key => visible.has(key) ? remaining[next++] : key);
+  return [...result, ...remaining.slice(next)];
+}
+
 class SessionOrder {
   constructor(storage) { this.storage = storage; }
   saved(hostId) { return this.storage.get(STORAGE_KEY, {})[hostId] || []; }
-  sort(hostId, entries) {
-    const ranks = new Map(this.saved(hostId).map((key, index) => [key, index]));
-    return [...entries].sort((a, b) =>
-      (ranks.get(sessionKey(a)) ?? Infinity) - (ranks.get(sessionKey(b)) ?? Infinity) || byCreation(a, b));
+  sort(hostId, entries, saved = this.saved(hostId)) {
+    return sortSessionEntries(entries, saved);
   }
   async move(hostId, entries, movingKeys, beforeKey) {
-    const selected = new Set(movingKeys);
     const ordered = this.sort(hostId, entries).map(sessionKey);
-    const moving = ordered.filter(key => selected.has(key));
-    if (!moving.length || selected.has(beforeKey)) return;
-    const remaining = ordered.filter(key => !selected.has(key));
-    const index = beforeKey == null ? remaining.length : remaining.indexOf(beforeKey);
-    if (index < 0) return;
-    remaining.splice(index, 0, ...moving);
-    // Retain temporarily unavailable sessions' positions in the stored sequence.
-    const visible = new Set(ordered);
-    const saved = this.saved(hostId);
-    let next = 0;
-    const result = saved.map(key => visible.has(key) ? remaining[next++] : key);
-    result.push(...remaining.slice(next));
+    const result = moveSessionKeys(ordered, this.saved(hostId), movingKeys, beforeKey);
+    if (!result) return;
     await this.storage.update(STORAGE_KEY, { ...this.storage.get(STORAGE_KEY, {}), [hostId]: result });
   }
   async reset(hostId) {
@@ -43,4 +51,4 @@ class SessionOrder {
     await this.storage.update(STORAGE_KEY, orders);
   }
 }
-module.exports = { SessionOrder, sessionKey, byCreation };
+module.exports = { SessionOrder, sessionKey, byCreation, moveSessionKeys, sortSessionEntries };

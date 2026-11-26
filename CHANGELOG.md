@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.4.6 — 2026-11-26
+
+- Reorder sessions and categories in a dedicated view with horizontal insertion markers. Ordinary sessions stay flat within their category, and Fork children follow their parent.
+
 ## 3.4.5 — 2026-11-26
 
 - Place Fork Session third in the running session context menu, after Session Files and Rename Session.

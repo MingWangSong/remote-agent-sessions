@@ -2,7 +2,7 @@
 
 [Overview](../README.md) · [中文指南](guide.zh-CN.md) · [Changelog](../CHANGELOG.md)
 
-This index covers all **44 contributed commands**. Names match the current English UI. Context actions use the selected host, session, file or directory; commands in the Command Palette appear under **TmuxDock**. Availability follows the item's state. The legacy stop alias is retained for compatibility and hidden from the palette.
+This index covers all **45 contributed commands**. Names match the current English UI. Context actions use the selected host, session, file or directory; commands in the Command Palette appear under **TmuxDock**. Availability follows the item's state. The legacy stop alias is retained for compatibility and hidden from the palette.
 
 ## Hosts and discovery
 
@@ -29,6 +29,7 @@ This index covers all **44 contributed commands**. Names match the current Engli
 | Session Details | `remoteAgentSessions.showDetails` | Inspect host, saved directory, layout, Agent binding and recovery details. |
 | Edit Session Note | `remoteAgentSessions.addNote` | Save a local note on a managed record. |
 | Reset Order | `remoteAgentSessions.resetOrder` | Reset the selected host's persisted drag order to creation-time order. |
+| Reorder Sessions | `remoteAgentSessions.reorderSessions` | Drag to an insertion line to order sessions within a status, move running sessions between categories, or reorder categories. |
 | Enable Recovery | `remoteAgentSessions.adopt` | Save recovery metadata and ownership for an existing unmanaged tmux session. File browsing does not require this. |
 | Stop Session | `remoteAgentSessions.delete` | Confirm, save the last directories/layout/known conversation links, then stop the session. |
 | Restore Session | `remoteAgentSessions.restore` | Rebuild the same tmux name and saved layout; resume bound Agents according to restore policy. |
@@ -57,7 +58,7 @@ Closing a terminal tab only detaches it. Stop Session stops processes and retain
 | Rename | `remoteAgentSessions.renameFile` | Rename a file/directory through native workspace file operations; reject existing targets and protect linked roots. |
 | Delete Permanently | `remoteAgentSessions.deleteFilePermanently` | Confirm the host and full target path before deleting. A folder includes its contents; no Trash recovery is provided. Linked roots and their ancestors are protected. |
 
-Native Save, session drag ordering, tree drag-to-move and desktop drag-to-upload are interactions rather than extra command IDs. The compact context menu exposes actions relevant to the selected item; linked root rows retain creation/upload/path-copy actions while rename/delete are hidden.
+Native Save, tree drag-to-move and desktop drag-to-upload are interactions rather than extra command IDs. The compact context menu exposes actions relevant to the selected item; linked root rows retain creation/upload/path-copy actions while rename/delete are hidden.
 
 ## Transfers and previews
 

@@ -2,7 +2,7 @@
   "name": "remote-agent-sessions",
   "displayName": "TmuxDock",
   "description": "Remote tmux, Codex and Claude in one VS Code workspace. Native files, live HTML and Markdown previews, SFTP and recovery.",
-  "version": "3.4.5",
+  "version": "3.4.6",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -332,6 +332,12 @@
         "title": "Fork Session",
         "icon": "$(repo-forked)",
         "category": "TmuxDock"
+      },
+      {
+        "command": "remoteAgentSessions.reorderSessions",
+        "title": "Reorder Sessions",
+        "icon": "$(list-ordered)",
+        "category": "TmuxDock"
       }
     ],
     "viewsContainers": {
@@ -376,6 +382,11 @@
           "command": "remoteAgentSessions.addHost",
           "when": "view == remoteAgentSessions.sessions",
           "group": "navigation@1"
+        },
+        {
+          "command": "remoteAgentSessions.reorderSessions",
+          "when": "view == remoteAgentSessions.sessions",
+          "group": "navigation@2"
         },
         {
           "command": "remoteAgentSessions.importBackup",
@@ -463,6 +474,11 @@
           "command": "remoteAgentSessions.resetOrder",
           "when": "view == remoteAgentSessions.sessions && viewItem =~ /sshHost/",
           "group": "host@5"
+        },
+        {
+          "command": "remoteAgentSessions.reorderSessions",
+          "when": "view == remoteAgentSessions.sessions && (viewItem =~ /sshHost/ || viewItem == runningGroup || viewItem == statusGroup)",
+          "group": "host@6"
         },
         {
           "command": "remoteAgentSessions.uploadFiles",

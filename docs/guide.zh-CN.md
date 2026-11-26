@@ -5,7 +5,7 @@
 ## Running 分类与会话分叉
 
 - 右键 **Running → New Category**。分类可以折叠、重命名或移除，分类和拖动位置保存在当前 VS Code 配置中。
-- 普通 session 可以拖到任意分类或已有子项的父 session 下。拖回 **Running** 可移到顶层。子 Fork 无法单独拖动，会跟随原父 session。
+- 点 TmuxDock 标题栏的 **Reorder Sessions**，拖到两项之间的横线即可排序。可以拖动分类标题排序，也可以把普通会话拖到另一个分类或 **Running · Ungrouped**。分类保持单层，Fork 子会话跟随父会话移动。
 - 对运行中的 Codex / Claude 会话右键 **Fork Session**，只需输入新会话名。插件在当前活动窗格中识别原对话，并在该目录打开新的 tmux 和 Agent 对话。分叉沿用已保存的对话上下文，源和分叉共享磁盘文件。
 - 父 session 停止时，仍在运行的子 Fork 会显示在 **Running**；父 session 恢复后，子 Fork 会回到它下面。
 

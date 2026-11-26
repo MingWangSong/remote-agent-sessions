@@ -3,6 +3,7 @@ const vscode = require('vscode');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { sessionKey } = require('../../src/sessionOrder');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function waitFor(fn, timeout = 20000) {
@@ -120,11 +121,8 @@ exports.run = async function () {
     assert.ok(api.provider.getChildren(groups[0]).every(item => item.entry.status === 'live'));
     assert.ok(api.provider.getChildren(groups[1]).every(item => item.entry.status === 'recoverable'));
     const runningItem = api.provider.getChildren(groups[0])[0];
-    const transfer = new vscode.DataTransfer();
-    api.provider.handleDrag([runningItem], transfer);
-    const savedOrder = [...api.provider.order.saved(host.id)];
-    await api.provider.handleDrop(groups[1], transfer);
-    assert.deepEqual(api.provider.order.saved(host.id), savedOrder, 'cross-group drag must be ignored');
+    assert.equal(await api.provider.reorder(controller, { kind: 'session', group: 'stopped', categoryId: null,
+      entry: sessionKey(runningItem.entry), before: null }), false, 'cross-group drag must be ignored');
     await controller.manager.restore(stopped);
     assert.deepEqual(api.provider.getChildren(root).map(group => group.group), ['running']);
     const entries = controller.manager.entries;
@@ -152,11 +150,9 @@ exports.run = async function () {
     const provider = api.provider;
     const running = provider.getChildren(provider.getChildren()[0]).find(group => group.group === 'running');
     const find = (node, id) => provider.getChildren(node).find(item => item.entry?.id === id);
-    const drop = async (node, target) => {
-      const transfer = new vscode.DataTransfer();
-      provider.handleDrag([node], transfer);
-      await provider.handleDrop(target, transfer);
-    };
+    const drop = (node, categoryId, before = null) => provider.reorder(controller, {
+      kind: 'session', group: 'running', entry: sessionKey(node.entry), categoryId, before
+    });
     try {
       await provider.categories.create(host.id, 'Reports');
       const category = provider.getChildren(running).find(item => item.kind === 'category');
@@ -165,10 +161,8 @@ exports.run = async function () {
       const rootParent = find(running, parent.id);
       const nested = find(rootParent, child.id);
       assert.equal(provider.getParent(nested).id, rootParent.id);
-      const refused = new vscode.DataTransfer();
-      provider.handleDrag([nested], refused);
-      assert.equal(refused.get(provider.dragMimeTypes[0]), undefined);
-      await drop(rootParent, category);
+      assert.equal(await drop(nested, category.category.id), false);
+      await drop(rootParent, category.category.id);
       const movedParent = find(category, parent.id);
       assert.equal(find(movedParent, child.id).entry.id, child.id);
       if (process.env.RAS_TEST_DEBUG_PORT) {
@@ -246,9 +240,11 @@ exports.run = async function () {
           browser.close();
         }
       }
-      await drop(find(running, other.id), movedParent);
-      assert.equal(provider.getParent(find(movedParent, other.id)).id, movedParent.id);
-      await drop(find(movedParent, other.id), running);
+      assert.equal(await drop(find(running, other.id), category.category.id, child.id), false);
+      await drop(find(running, other.id), category.category.id, parent.id);
+      assert.deepEqual(provider.getChildren(category).map(item => item.entry.id), [other.id, parent.id]);
+      assert.equal(provider.getParent(find(category, other.id)).id, category.id);
+      await drop(find(category, other.id), null);
       assert.ok(find(running, other.id));
       await controller.manager.terminate(parent);
       assert.ok(find(category, child.id), 'a live child stays visible when its parent stops');
@@ -265,7 +261,7 @@ exports.run = async function () {
       await controller.manager.forget(other);
       await controller.manager.terminate(parent);
       await controller.manager.forget(parent);
-      await provider.order.reset(host.id);
+      await provider.categories.resetOrder(host.id);
       await controller.refresh(false);
     }
   });
@@ -426,19 +422,53 @@ exports.run = async function () {
     }
   });
 
-  await check('Tree drag-and-drop persists a host-local order and reset restores creation order', async () => {
+  await check('Session reorder uses a horizontal insertion line and persists across refresh', async () => {
     const names = ['vscode-order-a', 'vscode-order-b'];
     for (const name of names) await controller.tmux.create(name, directory);
     await controller.manager.refresh(false);
     const root = api.provider.getChildren()[0];
     const items = sessionItems(root);
-    const transfer = new vscode.DataTransfer();
-    api.provider.handleDrag([items[items.length - 1]], transfer);
-    await api.provider.handleDrop(items[0], transfer);
-    assert.equal(sessionItems(root)[0].id, items[items.length - 1].id);
-    const { SessionOrder } = require('../../src/sessionOrder');
-    const reloaded = new SessionOrder(api.provider.order.storage);
-    assert.equal(reloaded.sort(host.id, controller.manager.entries)[0].id, items[items.length - 1].entry.id);
+    const first = sessionKey(items[0].entry), last = sessionKey(items.at(-1).entry);
+    if (process.env.RAS_TEST_DEBUG_PORT) {
+      const browser = await require('./clipboard').browser();
+      await vscode.commands.executeCommand('remoteAgentSessions.reorderSessions', root);
+      try {
+        const panel = await browser.findDocument('!!document.querySelector("#sections .session-row")', 'the session order view');
+        const begin = await browser.evaluate(panel, `(() => {
+          const rows = [...document.querySelectorAll(".session-row")];
+          const source = rows.find(row => row.dataset.session === ${JSON.stringify(last)});
+          const anchor = rows.find(row => row.dataset.session === ${JSON.stringify(first)});
+          const dataTransfer = new DataTransfer();
+          const y = anchor.getBoundingClientRect().top + 3;
+          const event = type => new DragEvent(type, { bubbles: true, cancelable: true, clientY: y, dataTransfer });
+          source.dispatchEvent(event("dragstart"));
+          anchor.dispatchEvent(event("dragover"));
+          const line = getComputedStyle(anchor, "::before");
+          return anchor.classList.contains("insert-before") && line.height === "2px";
+        })()`);
+        assert.equal(begin, true, 'the target displays a line above the anchor while dragging');
+        await browser.evaluate(panel, `(() => {
+          const anchor = [...document.querySelectorAll(".session-row")].find(row =>
+            row.dataset.session === ${JSON.stringify(first)});
+          anchor.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true,
+            clientY: anchor.getBoundingClientRect().top + 3, dataTransfer: new DataTransfer() }));
+        })()`);
+        await waitFor(() => sessionKey(sessionItems(root)[0].entry) === last);
+      } finally {
+        browser.close();
+        const tab = vscode.window.tabGroups.all.flatMap(group => group.tabs).find(candidate =>
+          candidate.label.startsWith('Reorder Sessions · '));
+        if (tab) await vscode.window.tabGroups.close(tab);
+      }
+    } else {
+      assert.ok(await api.provider.reorder(controller, { kind: 'session', group: 'running', categoryId: null,
+        entry: last, before: first }));
+    }
+    await api.provider.refresh(controller, false);
+    assert.equal(sessionKey(sessionItems(root)[0].entry), last);
+    const { SessionCategories } = require('../../src/sessionCategories');
+    const reloaded = new SessionCategories(api.provider.categories.storage);
+    assert.equal(reloaded.get(host.id).order[0], last);
     await vscode.commands.executeCommand('remoteAgentSessions.resetOrder', root);
     assert.equal(sessionItems(root)[0].id, items[0].id);
     for (const name of names) await controller.tmux.kill(name);
