@@ -14,7 +14,7 @@ test('late storage snapshots cannot bring back a removed category or hide its se
   await groups.create('host', 'Reports');
   const category = groups.get('host').categories[0];
   const parent = { id: 'parent', record: { id: 'parent' } };
-  await groups.reorderSession('host', { entry: 'parent', before: null, group: 'running', categoryId: category.id },
+  await groups.reorderSession('host', { keys: ['parent'], before: null, group: 'running', categoryId: category.id },
     () => ({ entries: [parent], records: [parent.record] }), []);
   const old = saved;
   await groups.remove('host', category.id);
@@ -53,4 +53,10 @@ test('category order persists and old manual nesting is flattened while Fork lin
   const tree = runningTree(entries, entries.map(entry => entry.record), state);
   assert.deepEqual(tree.children.get('category:' + reports.id), [parent, oldNested]);
   assert.deepEqual(tree.children.get('parent:parent'), [fork]);
+  const records = entries.map(entry => entry.record);
+  await groups.reorderSession('host', { keys: ['parent', 'old'], before: null, group: 'running', categoryId: sandbox.id },
+    () => ({ entries, records }), ['parent', 'old', 'fork']);
+  const moved = new SessionCategories(storage).get('host');
+  assert.deepEqual(moved.order, ['fork', 'parent', 'old']);
+  assert.deepEqual(runningTree(entries, records, moved).children.get('category:' + sandbox.id), [parent, oldNested]);
 });

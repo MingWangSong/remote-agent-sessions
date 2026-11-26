@@ -319,13 +319,14 @@ class MultiHostTreeProvider {
   }
 
   async reorder(controller, move) {
-    if (!this.controllers.includes(controller) || typeof move?.entry !== 'string' ||
+    if (!this.controllers.includes(controller) || !move ||
       (move.before !== null && typeof move.before !== 'string')) return false;
     const id = controller.host.id;
     let saved;
-    if (move.kind === 'category') {
+    if (move.kind === 'category' && typeof move.entry === 'string') {
       saved = await this.categories.reorderCategory(id, move.entry, move.before);
-    } else if (move.kind === 'session' && ['running', 'stopped', 'unknown'].includes(move.group)) {
+    } else if (move.kind === 'session' && Array.isArray(move.keys) && move.keys.length &&
+      move.keys.every(key => typeof key === 'string') && ['running', 'stopped', 'unknown'].includes(move.group)) {
       const readGroup = group => ({ entries: controller.manager.entries.filter(entry => sessionGroup(entry) === group),
         records: controller.manager.records });
       saved = await this.categories.reorderSession(id, move, readGroup, this.order.saved(id));

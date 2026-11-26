@@ -83,13 +83,13 @@ class SessionCategories {
     });
   }
 
-  reorderSession(hostId, { entry, before, group, categoryId }, readGroup, legacyOrder) {
+  reorderSession(hostId, { keys, before, group, categoryId }, readGroup, legacyOrder) {
     return this.update(hostId, state => {
       const saved = state.order ?? legacyOrder;
       const latest = readGroup(group);
       const entries = sortSessionEntries(latest.entries, saved);
-      const source = entries.find(item => sessionKey(item) === entry);
-      if (!source || source.record?.forkParentId || entry === before) return false;
+      const movable = new Set(entries.filter(item => !item.record?.forkParentId).map(sessionKey));
+      if (keys.includes(before) || !keys.every(key => movable.has(key))) return false;
       if (group === 'running') {
         if (categoryId !== null && !state.categories.some(category => category.id === categoryId)) return false;
         const tree = runningTree(entries, latest.records, state);
@@ -97,9 +97,9 @@ class SessionCategories {
         const location = anchor && tree.locations.get(anchor.id);
         if (before !== null && (!location || location.parent || location.categoryId !== categoryId)) return false;
         // Membership and order change together, so a move can't land in the wrong group if saving fails.
-        state.membership[entry] = categoryId;
+        for (const key of keys) state.membership[key] = categoryId;
       }
-      const next = moveSessionKeys(entries.map(sessionKey), saved, [entry], before);
+      const next = moveSessionKeys(entries.map(sessionKey), saved, keys, before);
       if (!next) return false;
       state.order = next;
     });

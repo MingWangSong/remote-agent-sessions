@@ -518,6 +518,7 @@ exports.run = async (api, controller, check) => {
       });
       await second.manager.store.save([record2]);
       await second.manager.reloadRecords();
+      await wait(() => entry() && second.manager.entries.some((e) => e.id === record2.id));
       files.select(
         controller,
         controller.manager.entries.find((e) => e.id === record.id),

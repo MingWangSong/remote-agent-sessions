@@ -122,7 +122,7 @@ exports.run = async function () {
     assert.ok(api.provider.getChildren(groups[1]).every(item => item.entry.status === 'recoverable'));
     const runningItem = api.provider.getChildren(groups[0])[0];
     assert.equal(await api.provider.reorder(controller, { kind: 'session', group: 'stopped', categoryId: null,
-      entry: sessionKey(runningItem.entry), before: null }), false, 'cross-group drag must be ignored');
+      keys: [sessionKey(runningItem.entry)], before: null }), false, 'cross-group drag must be ignored');
     await controller.manager.restore(stopped);
     assert.deepEqual(api.provider.getChildren(root).map(group => group.group), ['running']);
     const entries = controller.manager.entries;
@@ -151,7 +151,7 @@ exports.run = async function () {
     const running = provider.getChildren(provider.getChildren()[0]).find(group => group.group === 'running');
     const find = (node, id) => provider.getChildren(node).find(item => item.entry?.id === id);
     const drop = (node, categoryId, before = null) => provider.reorder(controller, {
-      kind: 'session', group: 'running', entry: sessionKey(node.entry), categoryId, before
+      kind: 'session', group: 'running', keys: [sessionKey(node.entry)], categoryId, before
     });
     try {
       await provider.categories.create(host.id, 'Reports');
@@ -462,7 +462,7 @@ exports.run = async function () {
       }
     } else {
       assert.ok(await api.provider.reorder(controller, { kind: 'session', group: 'running', categoryId: null,
-        entry: last, before: first }));
+        keys: [last], before: first }));
     }
     await api.provider.refresh(controller, false);
     assert.equal(sessionKey(sessionItems(root)[0].entry), last);

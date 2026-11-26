@@ -28,6 +28,7 @@ p, .empty, .forks { color: var(--vscode-descriptionForeground); }
 }
 
 .session-row:hover { background: var(--vscode-list-hoverBackground); }
+.session-row[aria-selected="true"] { background: var(--vscode-list-inactiveSelectionBackground); }
 [draggable="true"] { cursor: grab; user-select: none; }
 [tabindex]:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
 .grip { color: var(--vscode-descriptionForeground); margin-right: 8px; }
