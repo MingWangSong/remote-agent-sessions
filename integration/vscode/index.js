@@ -297,7 +297,7 @@ exports.run = async function () {
     }
   });
 
-  await check('Actual SSH terminal opens in the active editor area and is reused', async () => {
+  await check('Actual SSH terminal opens in the main editor group and is reused', async () => {
     const hostItem = api.provider.getChildren()[0];
     const item = sessionItems(hostItem).find((candidate) => candidate.entry?.record?.id === record.id);
     assert.ok(item, `Expected the SSH acceptance session in the sidebar: ${JSON.stringify(controller.manager.entries.map(entry => [entry.title, entry.status]))}`);
@@ -305,30 +305,53 @@ exports.run = async function () {
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     let calls = 0;
+    const sideDocument = await vscode.workspace.openTextDocument({ content: 'Independent document in a side group' });
+    const groups = () => vscode.window.tabGroups.all;
+    const visibleTerminals = () => groups().flatMap(group => group.tabs.filter(tab =>
+      tab.input instanceof vscode.TabInputTerminal && tab.label === record.title));
+    await vscode.commands.executeCommand('workbench.action.focusFirstEditorGroup');
+    await vscode.commands.executeCommand('workbench.action.lockEditorGroup');
+    await vscode.window.showTextDocument(sideDocument, { viewColumn: vscode.ViewColumn.Beside, preview: false });
+    const groupCount = groups().length;
+    assert.notEqual(vscode.window.tabGroups.activeTabGroup.viewColumn, vscode.ViewColumn.One);
     controller.tmux.list = async () => { calls++; await gate; return originalList(); };
     const connecting = vscode.commands.executeCommand('remoteAgentSessions.attach', item);
     const duplicate = vscode.commands.executeCommand('remoteAgentSessions.attach', item);
+    let overlappingAttach;
     try {
-      await waitFor(() => controller.sessionActivity.has(item.entry.id));
+      await waitFor(() => calls === 1 && controller.sessionActivity.has(item.entry.id));
+      overlappingAttach = api.attachEntry(controller, item.entry);
+      await sleep(100);
       const busyItem = sessionItems(hostItem).find(candidate => candidate.entry?.id === item.entry.id);
       assert.equal(busyItem.iconPath.id, 'loading~spin');
       assert.match(busyItem.description, /Connecting/);
       assert.equal(calls, 1, 'duplicate click must not start another SSH identity query');
     } finally { release(); }
-    await Promise.all([connecting, duplicate]);
+    await Promise.all([connecting, duplicate, overlappingAttach]);
     controller.tmux.list = originalList;
     assert.equal(controller.sessionActivity.size, 0);
     await waitFor(async () => (await controller.tmux.list()).some((session) => session.name === record.tmuxSession && session.attached === 1));
     const attached = vscode.window.terminals.find((terminal) => terminal.name === record.title);
-    assert.equal(attached.creationOptions.location.viewColumn, vscode.ViewColumn.Active);
+    assert.equal(attached.creationOptions.location.viewColumn, vscode.ViewColumn.One);
+    await waitFor(() => visibleTerminals().length === 1 && visibleTerminals()[0].isActive);
+    assert.equal(visibleTerminals()[0].group.viewColumn, vscode.ViewColumn.One);
+    assert.equal(groups().length, groupCount);
+    await vscode.commands.executeCommand('workbench.action.unlockEditorGroup');
     assert.equal(attached.creationOptions.location.preserveFocus, false);
     assert.equal(attached.creationOptions.name, record.title);
     assert.ok(!attached.name.includes(host.label));
     assert.ok(attached.creationOptions.message.includes(host.label));
     assert.ok(api.terminalStatus.text.includes(host.label));
     const count = vscode.window.terminals.length;
+    const side = groups().flatMap(group => group.tabs).find(tab =>
+      tab.input instanceof vscode.TabInputText && tab.input.uri.toString() === sideDocument.uri.toString());
+    assert.ok(side);
+    await vscode.window.showTextDocument(sideDocument, { viewColumn: side.group.viewColumn });
     await vscode.commands.executeCommand('remoteAgentSessions.attach', item);
+    await waitFor(() => visibleTerminals()[0]?.isActive && vscode.window.tabGroups.activeTabGroup.viewColumn === vscode.ViewColumn.One);
     assert.equal(vscode.window.terminals.length, count);
+    assert.equal(visibleTerminals().length, 1);
+    await vscode.window.tabGroups.close(side);
   });
 
   await check('Reopening an existing terminal bypasses a slow host refresh without SSH', async () => {

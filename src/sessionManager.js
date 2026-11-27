@@ -387,35 +387,43 @@ class SessionManager {
       if (record && live && !owns(record, live)) throw new Error('Session identity changed; refusing to delete a different session.');
       if (!record && live && !sameLiveIdentity(input.live, live)) throw new Error('Session identity changed; refusing to delete a different session.');
       if (!live) return null; // Repeated Delete retains the saved recovery record.
+      const windows = live.snapshotWindows || await this.tmux.listWindows(live.name);
       if (!record) {
-        const windows = live.snapshotWindows || await this.tmux.listWindows(live.name);
         const cwd = windows[0]?.panes?.[0]?.cwd || windows[0]?.cwd;
         record = createRecord({ title: live.name, tmuxSession: live.name, cwd, windows, createdAt: live.created });
         records.push(record);
       }
+      const panePids = new Map(windows.flatMap(w => w.panes.map(p => [p.id, p.pid])));
       record.tmuxSession = live.name;
-      record.windows = preserveCommands(structuredClone(live.snapshotWindows || await this.tmux.listWindows(live.name)), record.windows);
+      record.windows = preserveCommands(structuredClone(windows), record.windows);
       record.snapshotAt = new Date().toISOString();
       const activeWindow = record.windows.find(w => w.active) || record.windows[0];
       record.cwd = (activeWindow?.panes?.find(p => p.active) || activeWindow?.panes?.[0])?.cwd || activeWindow?.cwd || record.cwd;
       record.lastCwd = record.cwd;
-      Object.assign(record, await this.git.inspect(record.cwd));
-      if (needsAgentBinding(record)) throw new Error('This older Agent session has no saved conversation ID. Bind the original conversation before deleting it. The running session was preserved.');
       for (const w of record.windows) {
-        for (const p of w.panes?.length ? w.panes : [w]) {
-          if (p.agent) {
-            if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
-            p.agent = p.agent.launchState === 'fork-pending'
-              ? await this.agents.resolveFork(p.agent) : await this.agents.verify(p.agent);
-            if (p.agent.launchState !== 'fork-pending') p.agent.launchState = 'started';
-            p.command = agentCommand(p.agent, false, p.cwd || w.cwd || record.cwd);
-            if (record.agent?.sessionId === p.agent.sessionId) record.agent = structuredClone(p.agent);
-          } else if (builtinAgent(p.currentCommand)) {
-            throw new Error('This running Agent has no saved conversation ID. Bind its original conversation before deleting it. The running session was preserved.');
+        for (const p of w.panes) {
+          const type = commandType(p.currentCommand);
+          const previousAgent = p.agent;
+          if (type && previousAgent?.type !== type) {
+            const active = await this.agents?.activeConversation(type, panePids.get(p.id));
+            if (!active) throw new Error(`Could not identify the original ${type === 'claude' ? 'Claude' : 'Codex'} conversation in ${w.name} (${p.id}). Keep the Agent open and try again after it has saved its history, or bind the original conversation manually. The running session was preserved.`);
+            p.agent = { ...active, name: record.title };
           }
+          if (!p.agent) continue;
+          if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
+          p.agent = p.agent.launchState === 'fork-pending'
+            ? await this.agents.resolveFork(p.agent) : await this.agents.verify(p.agent);
+          if (p.agent.launchState !== 'fork-pending') p.agent.launchState = 'started';
+          p.command = agentCommand(p.agent, false, p.cwd || w.cwd || record.cwd);
+          if (!record.agent || record.agent.sessionId === p.agent.sessionId ||
+              (previousAgent?.sessionId && record.agent.sessionId === previousAgent.sessionId) ||
+              (needsAgentBinding(record) && record.agent.type === p.agent.type))
+            record.agent = structuredClone(p.agent);
         }
         w.command = w.panes?.[0]?.command || w.command || null;
       }
+      if (needsAgentBinding(record)) throw new Error('This older Agent session has no saved conversation ID. Bind the original conversation before deleting it. The running session was preserved.');
+      Object.assign(record, await this.git.inspect(record.cwd));
       record.recoveryVersion = 1;
       const token = randomUUID();
       record.stopCheckpoint = { version: 1, token, savedAt: new Date().toISOString(), live: {

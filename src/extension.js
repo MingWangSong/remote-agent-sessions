@@ -24,6 +24,7 @@ const { SessionWorkspace } = require('./sessionWorkspace');
 const { hostKey } = require('./sessionFileRoots');
 
 const terminals = new Map();
+const openingTerminals = new Map();
 const terminalContexts = new Map();
 let terminalStatus;
 let sessionWorkspace;
@@ -1139,20 +1140,33 @@ async function bindOriginalConversation(controller, record) {
   return true;
 }
 
+function focusSessionTerminal(key, controller, entry) {
+  const terminal = terminals.get(key);
+  if (!terminal || terminal.exitStatus !== undefined) return false;
+  terminalContexts.set(terminal, { controller, entry });
+  terminal.show();
+  updateTerminalStatus(terminal);
+  return true;
+}
+
 async function attachEntry(controller, entry) {
   if (!entry) return;
   const key = `${controller.host.id}:${entry.id}`;
-  if (!terminals.has(key)) await Promise.all(vscode.window.terminals
+  if (focusSessionTerminal(key, controller, entry)) return;
+  if (openingTerminals.has(key)) return openingTerminals.get(key);
+  const pending = openSessionTerminal(key, controller, entry);
+  openingTerminals.set(key, pending);
+  try { await pending; }
+  finally { openingTerminals.delete(key); }
+}
+
+async function openSessionTerminal(key, controller, entry) {
+  await Promise.all(vscode.window.terminals
     .filter(terminal => terminalConnections.matches(terminal, controller, entry))
     .map(terminal => reconnectTerminal(terminal)));
-  const existing = terminals.get(key);
-  if (existing && existing.exitStatus === undefined) {
-    terminalContexts.set(existing, { controller, entry });
-    existing.show();
-    updateTerminalStatus(existing);
-    return;
-  }
+  if (focusSessionTerminal(key, controller, entry)) return;
   const live = (await controller.tmux.list()).find((session) => session.name === entry.tmuxSession);
+  if (focusSessionTerminal(key, controller, entry)) return;
   if (!live || (entry.record && !owns(entry.record, live)) ||
       (entry.live && (entry.live.id !== live.id || entry.live.created !== live.created))) {
     throw new Error('Session is unavailable or its identity changed. Refresh and select it again.');
@@ -1167,7 +1181,9 @@ async function attachEntry(controller, entry) {
     });
   const location = controller.configuration.get('sessionTerminalLocation', 'editor') === 'panel'
     ? vscode.TerminalLocation.Panel
-    : { viewColumn: vscode.ViewColumn.Active, preserveFocus: false };
+    // An implicit active group can be bypassed when it is locked or belongs to
+    // another editor window. First opens should target the main editor group.
+    : { viewColumn: vscode.ViewColumn.One, preserveFocus: false };
   const terminal = vscode.window.createTerminal({
     name: terminalTitle(entry.title, new Set(vscode.window.terminals.map(terminal => terminal.name))),
     iconPath: terminalIconPath(entry),

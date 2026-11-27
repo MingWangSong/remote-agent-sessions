@@ -270,3 +270,39 @@ for (const type of ['claude', 'codex']) test(`Fork discovers the exact unlinked 
     assert.equal(await f.tmux.exists('Missing history'), false);
   }
 });
+
+for (const type of ['claude', 'codex']) test(`Delete discovers and restores an unlinked ${type} in its final directory`, { skip: process.platform !== 'linux' }, async t => {
+  const f = await fixture(t);
+  const manager = f.manager();
+  const root = await fs.realpath(f.dir);
+  const finalDirectory = path.join(root, 'latest work');
+  await fs.mkdir(finalDirectory);
+  const history = await f.agents.prepare(type, 'Original history', finalDirectory);
+  const other = await f.agents.prepare(type, 'Unrelated history', finalDirectory);
+  for (const [name, binding] of [['Legacy session', history], ['Unrelated session', other]]) {
+    const pane = await f.tmux.create(name, finalDirectory);
+    await f.tmux.sendCommand(name, pane, agentCommand(binding, true));
+  }
+  await f.waitLaunches(2);
+  await manager.refresh(false);
+  const entry = manager.entries.find(candidate => candidate.tmuxSession === 'Legacy session');
+  assert.equal(entry.managed, false);
+  await manager.deleteSession(entry);
+
+  const [saved] = await f.store.load();
+  assert.equal(saved.cwd, finalDirectory);
+  assert.equal(saved.agent.sessionId, history.sessionId);
+  assert.equal(saved.windows[0].panes[0].agent.sessionId, history.sessionId);
+  assert.equal(saved.windows[0].panes[0].pid, undefined);
+  assert.equal(await f.tmux.exists(entry.tmuxSession), false);
+  assert.equal(await f.tmux.exists('Unrelated session'), true);
+
+  const reloaded = f.manager();
+  await reloaded.initialize();
+  await reloaded.restore(saved, true);
+  const restored = (await f.waitLaunches(3))[2];
+  assert.equal(restored.id, history.sessionId);
+  assert.equal(restored.mode, 'resume');
+  assert.equal(restored.cwd, finalDirectory);
+  assert.equal(await f.tmux.exists(entry.tmuxSession), true);
+});

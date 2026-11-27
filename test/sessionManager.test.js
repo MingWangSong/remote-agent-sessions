@@ -225,3 +225,22 @@ test('Delete verifies saved Agent history before killing and preserves legacy un
   await assert.rejects(f.manager.deleteSession(f.record), /Bind the original/);
   assert.equal(f.kills(), 0);
 });
+
+test('Delete leaves an unlinked Agent running when its original history is unavailable or ambiguous', async t => {
+  const f = await deletionFixture(t);
+  const before = await f.store.load();
+  f.tmux.listWindows = async () => [{ id: '@1', name: 'agent', cwd: f.dir, panes: [
+    { id: '%1', cwd: f.dir, active: true, currentCommand: 'claude', pid: 321 }
+  ] }];
+  f.manager.agents = {
+    activeConversation: async (type, pid) => {
+      assert.equal(type, 'claude');
+      assert.equal(pid, 321);
+    }
+  };
+  await assert.rejects(f.manager.deleteSession(f.record), /Could not identify the original Claude conversation/);
+  f.manager.agents.activeConversation = async () => { throw new Error('Several Agent conversations are active in this pane'); };
+  await assert.rejects(f.manager.deleteSession(f.record), /Several Agent conversations/);
+  assert.equal(f.kills(), 0);
+  assert.deepEqual(await f.store.load(), before);
+});

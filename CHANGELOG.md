@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.4.7 — 2026-11-27
+
+- Open a running session in the main editor group on first attach. Repeated opens focus its existing terminal tab, including when it has been moved.
+- Identify and verify an unlinked Claude or Codex conversation from its running tmux pane on Linux before stopping. Save its original conversation and final directory for Restore.
+
 ## 3.4.6 — 2026-11-26
 
 - Reorder sessions and categories in a dedicated view with horizontal insertion markers. Ordinary sessions stay flat within their category, and Fork children follow their parent.
