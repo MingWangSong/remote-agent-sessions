@@ -424,11 +424,12 @@ exports.run = async function () {
     const entry = controller.manager.entries.find(candidate => candidate.record?.id === extra.id);
     await api.attachEntry(controller, entry);
     const extraTerminal = vscode.window.terminals.find(terminal => terminal.name === extra.title);
+    await waitFor(() => vscode.window.tabGroups.activeTabGroup.activeTab?.label === extra.title);
     await vscode.commands.executeCommand('remoteAgentSessions.sessions.focus');
     await waitFor(() => api.view.visible);
     const activateTab = async title => {
       const index = vscode.window.tabGroups.activeTabGroup.tabs.findIndex(tab => tab.label === title);
-      assert.ok(index >= 0 && index < 9);
+      assert.ok(index >= 0 && index < 9, `No numbered tab for ${title} at index ${index}`);
       await vscode.commands.executeCommand(`workbench.action.openEditorAtIndex${index + 1}`);
     };
     try {

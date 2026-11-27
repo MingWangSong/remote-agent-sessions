@@ -59,12 +59,18 @@ exports.run = async () => {
     await fs.writeFile(path.join(directory, 'keep.txt'), 'ordinary editor keeps its position\n');
     await vscode.window.showTextDocument(vscode.Uri.file(path.join(directory, 'keep.txt')), { preview: false });
     await api.attachEntry(first, entryFor(first, state.records[0].id));
+    // Native terminals start their process when first rendered. Keep this
+    // terminal visible until it has attached before opening the next tab.
+    await waitFor(async () => (await first.tmux.list()).find(session =>
+      session.name === state.records[0].tmuxSession)?.attached === 1);
     await api.attachEntry(second, entryFor(second, state.records[1].id));
     state.secondName = 'Reload task · 2';
     await waitFor(() => vscode.window.tabGroups.activeTabGroup.activeTab?.label === state.secondName);
     await vscode.commands.executeCommand('workbench.action.moveEditorToRightGroup');
     await waitFor(() => vscode.window.tabGroups.activeTabGroup.viewColumn === vscode.ViewColumn.Two &&
       vscode.window.tabGroups.activeTabGroup.activeTab?.label === state.secondName);
+    await waitFor(async () => (await second.tmux.list()).find(session =>
+      session.name === state.records[1].tmuxSession)?.attached === 1);
     const panelRecord = await first.manager.create({ title: 'Panel task', cwd: directory });
     state.panelRecord = panelRecord;
     const panelController = { ...first, configuration: { get: (key, fallback) => key === 'sessionTerminalLocation' ? 'panel' : first.configuration.get(key, fallback) } };
