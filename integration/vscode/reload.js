@@ -59,10 +59,12 @@ exports.run = async () => {
     await fs.writeFile(path.join(directory, 'keep.txt'), 'ordinary editor keeps its position\n');
     await vscode.window.showTextDocument(vscode.Uri.file(path.join(directory, 'keep.txt')), { preview: false });
     await api.attachEntry(first, entryFor(first, state.records[0].id));
-    await vscode.commands.executeCommand('workbench.action.newGroupRight');
     await api.attachEntry(second, entryFor(second, state.records[1].id));
     state.secondName = 'Reload task · 2';
-    await waitFor(() => Boolean(terminalNamed(state.secondName)));
+    await waitFor(() => vscode.window.tabGroups.activeTabGroup.activeTab?.label === state.secondName);
+    await vscode.commands.executeCommand('workbench.action.moveEditorToRightGroup');
+    await waitFor(() => vscode.window.tabGroups.activeTabGroup.viewColumn === vscode.ViewColumn.Two &&
+      vscode.window.tabGroups.activeTabGroup.activeTab?.label === state.secondName);
     const panelRecord = await first.manager.create({ title: 'Panel task', cwd: directory });
     state.panelRecord = panelRecord;
     const panelController = { ...first, configuration: { get: (key, fallback) => key === 'sessionTerminalLocation' ? 'panel' : first.configuration.get(key, fallback) } };

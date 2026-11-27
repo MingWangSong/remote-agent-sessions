@@ -63,14 +63,19 @@ exports.run = async function () {
     await waitFor(() => [...events.keys()].every(item =>
       item.server.rendered.has(htmlPath) && item.server.rendered.has(path.join(root, 'style.css'))), 'both HTML pages to load');
     await fs.writeFile(outageTest, '');
-    await vscode.commands.executeCommand('workbench.action.newGroupRight');
+    await vscode.commands.executeCommand('workbench.action.editorLayoutThreeColumns');
     await api.attachEntry(controller, entry);
+    await waitFor(() => vscode.window.tabGroups.activeTabGroup.activeTab?.label === record.title, 'first terminal tab');
+    await vscode.commands.executeCommand('workbench.action.moveEditorToRightGroup');
     terminals.push(vscode.window.terminals.find(candidate => candidate.name === record.title));
     for (let index = 1; index <= 2; index++) {
       const other = await controller.manager.create({ title: 'reconnect-fixture-' + index, cwd: root });
       records.push(other);
-      if (index === 1) await vscode.commands.executeCommand('workbench.action.newGroupRight');
       await api.attachEntry(controller, controller.manager.entries.find(candidate => candidate.id === other.id));
+      if (index === 1) {
+        await waitFor(() => vscode.window.tabGroups.activeTabGroup.activeTab?.label === other.title, 'second terminal tab');
+        await vscode.commands.executeCommand('workbench.action.moveEditorToLastGroup');
+      }
       terminals.push(vscode.window.terminals.find(candidate => candidate.name === other.title));
     }
     const pids = await Promise.all(terminals.map(terminal => terminal.processId));
@@ -81,6 +86,8 @@ exports.run = async function () {
     const native = vscode.window.tabGroups.activeTabGroup.activeTab;
     const before = layout();
     assert.equal(before.length, 3);
+    assert.equal(vscode.window.tabGroups.all.filter(group =>
+      group.tabs.some(tab => tab.input instanceof vscode.TabInputTerminal)).length, 3);
     const service = files.service(controller);
     await waitFor(() => [...service.watches.values()].some(watch => watch.file === markdownPath && watch.signature), 'initial markdown watch');
     await waitFor(() => [...events.keys()].every(item => !item.timer), 'initial preview updates');

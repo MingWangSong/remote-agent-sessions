@@ -333,7 +333,8 @@ exports.run = async function () {
     await waitFor(async () => (await controller.tmux.list()).some((session) => session.name === record.tmuxSession && session.attached === 1));
     const attached = vscode.window.terminals.find((terminal) => terminal.name === record.title);
     assert.equal(attached.creationOptions.location.viewColumn, vscode.ViewColumn.One);
-    await waitFor(() => visibleTerminals().length === 1 && visibleTerminals()[0].isActive);
+    await waitFor(() => visibleTerminals().length === 1 && visibleTerminals()[0].isActive &&
+      vscode.window.tabGroups.activeTabGroup.viewColumn === vscode.ViewColumn.One);
     assert.equal(visibleTerminals()[0].group.viewColumn, vscode.ViewColumn.One);
     assert.equal(groups().length, groupCount);
     await vscode.commands.executeCommand('workbench.action.unlockEditorGroup');
