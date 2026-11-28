@@ -150,9 +150,11 @@ exports.run = async function () {
     const provider = api.provider;
     const running = provider.getChildren(provider.getChildren()[0]).find(group => group.group === 'running');
     const find = (node, id) => provider.getChildren(node).find(item => item.entry?.id === id);
-    const drop = (node, categoryId, before = null) => provider.reorder(controller, {
-      kind: 'session', group: 'running', keys: [sessionKey(node.entry)], categoryId, before
-    });
+    const drop = (node, target) => {
+      const transfer = new vscode.DataTransfer();
+      provider.handleDrag([node], transfer);
+      return provider.handleDrop(target, transfer);
+    };
     try {
       await provider.categories.create(host.id, 'Reports');
       const category = provider.getChildren(running).find(item => item.kind === 'category');
@@ -161,8 +163,8 @@ exports.run = async function () {
       const rootParent = find(running, parent.id);
       const nested = find(rootParent, child.id);
       assert.equal(provider.getParent(nested).id, rootParent.id);
-      assert.equal(await drop(nested, category.category.id), false);
-      await drop(rootParent, category.category.id);
+      assert.equal(await drop(nested, category), false);
+      assert.equal(await drop(rootParent, category), true);
       const movedParent = find(category, parent.id);
       assert.equal(find(movedParent, child.id).entry.id, child.id);
       if (process.env.RAS_TEST_DEBUG_PORT) {
@@ -240,11 +242,14 @@ exports.run = async function () {
           browser.close();
         }
       }
-      assert.equal(await drop(find(running, other.id), category.category.id, child.id), false);
-      await drop(find(running, other.id), category.category.id, parent.id);
+      assert.equal(await drop(find(running, other.id), find(movedParent, child.id)), false);
+      assert.equal(await drop(find(running, other.id), movedParent), true);
       assert.deepEqual(provider.getChildren(category).map(item => item.entry.id), [other.id, parent.id]);
       assert.equal(provider.getParent(find(category, other.id)).id, category.id);
-      await drop(find(category, other.id), null);
+      assert.equal(await drop(movedParent, find(category, other.id)), true);
+      assert.deepEqual(provider.getChildren(category).map(item => item.entry.id), [parent.id, other.id]);
+      assert.equal(find(movedParent, child.id).entry.id, child.id);
+      assert.equal(await drop(find(category, other.id), running), true);
       assert.ok(find(running, other.id));
       await controller.manager.terminate(parent);
       assert.ok(find(category, child.id), 'a live child stays visible when its parent stops');

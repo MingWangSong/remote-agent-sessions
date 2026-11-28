@@ -90,6 +90,16 @@ async function mapLimit(items, limit, callback) {
   }));
 }
 
+class MissingAgentConversationError extends Error {
+  constructor(type, window, pane, panePid) {
+    super(`Could not identify the original ${type === 'claude' ? 'Claude' : 'Codex'} conversation in ${window.name} (${pane.id}). The session is still running.`);
+    this.type = type;
+    this.paneId = pane.id;
+    this.panePid = panePid;
+    this.cwd = pane.cwd || window.cwd;
+  }
+}
+
 class SessionManager {
   constructor(store, tmux, git = new GitInspector(), directoryChecker = checkDirectory, agents = null) {
     this.store = store; this.tmux = tmux; this.git = git;
@@ -375,7 +385,7 @@ class SessionManager {
   }
   async terminate(input) { return this.stopWithRecovery(input, 'terminated'); }
 
-  async stopWithRecovery(input, eventType) {
+  async stopWithRecovery(input, eventType, selectedConversations = new Map()) {
     // Commit the final snapshot BEFORE destroying any remote process. A failed
     // save leaves the workspace alive; a failed kill leaves a durable retry point.
     const checkpoint = await this.store.transaction(async records => {
@@ -384,9 +394,9 @@ class SessionManager {
       const live = record
         ? sessions.find(s => s.owner === record.id) || sessions.find(s => s.name === record.tmuxSession)
         : sessions.find(s => s.name === input.tmuxSession);
-      if (record && live && !owns(record, live)) throw new Error('Session identity changed; refusing to delete a different session.');
-      if (!record && live && !sameLiveIdentity(input.live, live)) throw new Error('Session identity changed; refusing to delete a different session.');
       if (!live) return null; // Repeated Delete retains the saved recovery record.
+      if ((record && !owns(record, live)) || !sameLiveIdentity(input.live, live))
+        throw new Error('Session identity changed; refusing to delete a different session.');
       const windows = live.snapshotWindows || await this.tmux.listWindows(live.name);
       if (!record) {
         const cwd = windows[0]?.panes?.[0]?.cwd || windows[0]?.cwd;
@@ -405,14 +415,21 @@ class SessionManager {
           const type = commandType(p.currentCommand);
           const previousAgent = p.agent;
           if (type && previousAgent?.type !== type) {
-            const active = await this.agents?.activeConversation(type, panePids.get(p.id));
-            if (!active) throw new Error(`Could not identify the original ${type === 'claude' ? 'Claude' : 'Codex'} conversation in ${w.name} (${p.id}). Keep the Agent open and try again after it has saved its history, or bind the original conversation manually. The running session was preserved.`);
-            p.agent = { ...active, name: record.title };
+            const panePid = panePids.get(p.id);
+            const selection = selectedConversations.get(p.id);
+            if (selection?.type === type && selection.panePid === panePid && this.agents) {
+              p.agent = await this.agents.bind(type, selection.sessionId, record.title, { archived: selection.archived });
+            } else {
+              const active = await this.agents?.activeConversation(type, panePid);
+              if (!active) throw new MissingAgentConversationError(type, w, p, panePid);
+              p.agent = await this.agents.verify({ ...active, name: record.title });
+            }
+          } else if (p.agent) {
+            if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
+            p.agent = p.agent.launchState === 'fork-pending'
+              ? await this.agents.resolveFork(p.agent) : await this.agents.verify(p.agent);
           }
           if (!p.agent) continue;
-          if (!this.agents) throw new Error('Agent conversation recovery is unavailable for this host');
-          p.agent = p.agent.launchState === 'fork-pending'
-            ? await this.agents.resolveFork(p.agent) : await this.agents.verify(p.agent);
           if (p.agent.launchState !== 'fork-pending') p.agent.launchState = 'started';
           p.command = agentCommand(p.agent, false, p.cwd || w.cwd || record.cwd);
           if (!record.agent || record.agent.sessionId === p.agent.sessionId ||
@@ -532,7 +549,7 @@ class SessionManager {
     });
     await this.reloadRecords();
   }
-  async deleteSession(input) { return this.stopWithRecovery(input, 'deleted'); }
+  async deleteSession(input, selectedConversations) { return this.stopWithRecovery(input, 'deleted', selectedConversations); }
 
 }
 async function checkDirectory(cwd) {
@@ -549,4 +566,4 @@ function checkTmuxName(name) {
   }
 }
 
-module.exports = { GitInspector, SessionManager, checkTmuxName, preserveCommands, owns, sameLiveIdentity, forkAgentSource };
+module.exports = { GitInspector, SessionManager, MissingAgentConversationError, checkTmuxName, preserveCommands, owns, sameLiveIdentity, forkAgentSource };

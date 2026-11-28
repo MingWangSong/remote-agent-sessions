@@ -214,7 +214,7 @@ class AgentSessions {
       await rpc.request('thread/read', { threadId: sessionId, includeTurns: false });
       await rpc.request('thread/name/set', { threadId: sessionId, name });
     });
-    else await this.verify(agent);
+    else return this.verify(agent);
     return agent;
   }
   async rename(agent, name) {

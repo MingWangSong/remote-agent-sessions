@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { SessionManager, preserveCommands } = require('../src/sessionManager');
+const { SessionManager, MissingAgentConversationError, preserveCommands } = require('../src/sessionManager');
 const { SessionStore } = require('../src/store');
 const { createRecord } = require('../src/model');
 
@@ -243,4 +243,39 @@ test('Delete leaves an unlinked Agent running when its original history is unava
   await assert.rejects(f.manager.deleteSession(f.record), /Several Agent conversations/);
   assert.equal(f.kills(), 0);
   assert.deepEqual(await f.store.load(), before);
+});
+
+test('Delete can save a verified original history from the stop dialog to the matching pane', async t => {
+  const f = await deletionFixture(t);
+  const before = await f.store.load();
+  const pane = { id: '%1', cwd: f.dir, active: true, currentCommand: 'claude', pid: 321 };
+  f.tmux.listWindows = async () => [{ id: '@1', name: 'agent', cwd: f.dir, panes: [pane] }];
+  const sessionId = '550e8400-e29b-41d4-a716-446655440000';
+  let verified = false;
+  f.manager.agents = {
+    activeConversation: async () => undefined,
+    bind: async (type, givenId, name) => {
+      assert.equal(givenId, sessionId);
+      verified = true;
+      return { type, sessionId, name, recoveryVersion: 1 };
+    }
+  };
+  const selection = new Map([[pane.id, { type: 'claude', sessionId, panePid: pane.pid }]]);
+  pane.pid++;
+  await assert.rejects(f.manager.deleteSession(f.record, selection), error => {
+    assert.ok(error instanceof MissingAgentConversationError);
+    assert.equal(error.paneId, pane.id);
+    assert.equal(error.panePid, pane.pid);
+    return true;
+  });
+  assert.equal(f.kills(), 0);
+  assert.deepEqual(await f.store.load(), before);
+  selection.get(pane.id).panePid = pane.pid;
+  await f.manager.deleteSession(f.record, selection);
+  const [saved] = await f.store.load();
+  assert.equal(verified, true);
+  assert.equal(f.kills(), 1);
+  assert.equal(saved.agent.sessionId, sessionId);
+  assert.equal(saved.windows[0].panes[0].agent.sessionId, sessionId);
+  assert.equal(saved.lastCwd, f.dir);
 });

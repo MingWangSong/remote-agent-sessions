@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.4.8 — 2026-11-28
+
+- Restore session drag and drop in the sidebar. Drop onto a category to move into it, onto Running to ungroup, or onto another session to insert before it. Forks move with their parent.
+- Offer to link the original conversation when an older running Agent has no detectable ID. Verify the chosen history and save the recovery record before stopping tmux.
+
 ## 3.4.7 — 2026-11-27
 
 - Open a running session in the main editor group on first attach. Repeated opens focus its existing terminal tab, including when it has been moved.

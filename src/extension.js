@@ -6,7 +6,7 @@ const vscode = require('vscode');
 const { parseBackup, mergeRecords } = require('./backup');
 const { HostRegistry } = require('./hostRegistry');
 const { basenameForTitle } = require('./model');
-const { GitInspector, SessionManager, checkTmuxName, owns } = require('./sessionManager');
+const { GitInspector, SessionManager, MissingAgentConversationError, checkTmuxName, owns } = require('./sessionManager');
 const { SessionStore, validateRecords } = require('./store');
 const { SshClient, remoteCommand } = require('./ssh');
 const { TmuxClient } = require('./tmux');
@@ -26,6 +26,7 @@ const { hostKey } = require('./sessionFileRoots');
 const terminals = new Map();
 const openingTerminals = new Map();
 const terminalContexts = new Map();
+const SESSION_DRAG_TYPE = 'application/vnd.code.tree.remoteagentsessions.sessions';
 let terminalStatus;
 let sessionWorkspace;
 let syncTreeSelection = () => {};
@@ -242,6 +243,8 @@ class MultiHostTreeProvider {
     this.controllers = [];
     this.order = new SessionOrder(context.globalState);
     this.categories = new SessionCategories(context.globalState);
+    this.dragMimeTypes = [SESSION_DRAG_TYPE];
+    this.dropMimeTypes = this.dragMimeTypes;
     this.changeEmitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.changeEmitter.event;
   }
@@ -336,6 +339,45 @@ class MultiHostTreeProvider {
     return Boolean(saved);
   }
 
+  handleDrag(items, transfer) {
+    const source = items[0];
+    if (!source || items.some(item => item.kind !== 'session' || item.controller !== source.controller ||
+        sessionGroup(item.entry) !== sessionGroup(source.entry) || item.entry.record?.forkParentId)) return;
+    transfer.set(SESSION_DRAG_TYPE, new vscode.DataTransferItem({
+      hostId: source.controller.host.id,
+      group: sessionGroup(source.entry),
+      keys: items.map(item => sessionKey(item.entry))
+    }));
+  }
+
+  async handleDrop(target, transfer) {
+    const data = transfer.get(SESSION_DRAG_TYPE)?.value;
+    const controller = target?.controller;
+    if (!controller || data?.hostId !== controller.host.id) return false;
+    let categoryId = null;
+    let before = null;
+    if (target.kind === 'category') {
+      if (data.group !== 'running') return false;
+      categoryId = target.category.id;
+    } else if (target.kind === 'sessionGroup') {
+      if (target.group !== data.group) return false;
+    } else if (target.kind === 'session') {
+      if (sessionGroup(target.entry) !== data.group || target.entry.record?.forkParentId) return false;
+      if (data.group === 'running') {
+        const location = this.running(controller).locations.get(target.entry.id);
+        if (!location || location.parent) return false;
+        categoryId = location.categoryId;
+      }
+      before = sessionKey(target.entry);
+    } else return false;
+    try {
+      return await this.reorder(controller, { kind: 'session', group: data.group, keys: data.keys, before, categoryId });
+    } catch (error) {
+      vscode.window.showErrorMessage(humanError(error));
+      return false;
+    }
+  }
+
   changed(force = false) {
     this.onCountChanged(this.controllers);
     // Runtime data such as tmux activity and snapshots changes every poll.
@@ -424,7 +466,7 @@ async function activate(context) {
   };
   context.subscriptions.push(vscode.window.onDidOpenTerminal(terminal => { reconnectTerminal(terminal).catch(() => {}); }));
   const view = vscode.window.createTreeView('remoteAgentSessions.sessions', {
-    treeDataProvider: provider, canSelectMany: true
+    treeDataProvider: provider, dragAndDropController: provider, canSelectMany: true
   });
   const orderPanels = new SessionOrderPanels(context.extensionUri, provider);
   context.subscriptions.push(orderPanels, vscode.commands.registerCommand('remoteAgentSessions.reorderSessions', async item => {
@@ -807,8 +849,27 @@ async function activate(context) {
       { modal: true, detail: 'The last working directories and original Agent conversations will be saved. Restore recreates the same tmux name and resumes those conversations. Use Remove Recovery Record to permanently remove the saved entry.' }, 'Stop Session'
     );
     if (answer !== 'Stop Session') return;
-    const key = `${resolved.controller.host.id}:${resolved.entry.id}`;
-    await resolved.controller.manager.deleteSession(resolved.entry);
+    const { controller, entry } = resolved;
+    const selectedConversations = new Map();
+    while (true) {
+      try {
+        await controller.manager.deleteSession(entry, selectedConversations);
+        break;
+      } catch (error) {
+        if (!(error instanceof MissingAgentConversationError)) throw error;
+        const action = 'Choose Original Conversation';
+        const choice = await vscode.window.showWarningMessage(error.message, {
+          modal: true, detail: 'Choose the original conversation to save it before stopping, or cancel to keep this session running.'
+        }, action);
+        if (choice !== action) return;
+        const conversation = await chooseOriginalConversation(controller, {
+          ...entry.record, title: entry.title, cwd: error.cwd || entry.cwd
+        }, error.type);
+        if (!conversation) return;
+        selectedConversations.set(error.paneId, { ...conversation, panePid: error.panePid });
+      }
+    }
+    const key = `${controller.host.id}:${entry.id}`;
     const terminal = terminals.get(key);
     if (terminal && terminal.exitStatus === undefined) terminal.dispose();
     terminals.delete(key);
